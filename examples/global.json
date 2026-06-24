@@ -1,0 +1,65 @@
+{
+  "$schema": "https://meta-skills.dev/schema/v1.json",
+  "version": "1.0",
+  "generated": "2026-06-24T08:48:00+10:00",
+  "source": "global",
+  "skills": [
+    {
+      "id": "git-commits",
+      "when": "writing commit messages, generating changelogs, analyzing git history",
+      "why": "enforces conventional commits with automatic scope detection",
+      "path": "~/.claude/skills/git-commits/SKILL.md",
+      "priority": "high",
+      "usage_count": 42,
+      "last_used": "2026-06-23T14:30:00+10:00"
+    },
+    {
+      "id": "code-review",
+      "when": "reviewing PRs, analyzing code quality, suggesting improvements",
+      "why": "structured review checklist + anti-pattern detection",
+      "path": "~/.claude/skills/code-review/SKILL.md",
+      "priority": "high",
+      "usage_count": 28,
+      "last_used": "2026-06-22T09:15:00+10:00"
+    },
+    {
+      "id": "database-migration",
+      "when": "creating or reviewing database schema changes, writing migrations",
+      "why": "safe migration patterns with rollback support",
+      "path": "~/.cursor/skills/database-migration/SKILL.md",
+      "priority": "medium",
+      "usage_count": 15,
+      "last_used": "2026-06-18T16:00:00+10:00"
+    },
+    {
+      "id": "api-testing",
+      "when": "writing API tests, debugging endpoints, generating test data",
+      "why": "comprehensive test patterns for REST/GraphQL APIs",
+      "path": "~/.claude/skills/api-testing/SKILL.md",
+      "priority": "medium",
+      "usage_count": 9,
+      "last_used": "2026-06-10T11:00:00+10:00"
+    },
+    {
+      "id": "docker-optimize",
+      "when": "optimizing Dockerfiles, reducing image size, multi-stage builds",
+      "why": "production-ready Dockerfile patterns with layer caching",
+      "path": "~/.cursor/skills/docker-optimize/SKILL.md",
+      "priority": "low",
+      "usage_count": 3,
+      "last_used": "2026-05-01T08:00:00+10:00"
+    }
+  ],
+  "stale": [
+    {
+      "id": "legacy-migration-tool",
+      "when": "migrating from legacy framework X to Y",
+      "why": "step-by-step migration guide (project completed)",
+      "path": "~/.claude/skills/legacy-migration-tool/SKILL.md",
+      "priority": "archived",
+      "usage_count": 12,
+      "last_used": "2026-03-01T10:00:00+10:00",
+      "archived": "2026-06-01"
+    }
+  ]
+}

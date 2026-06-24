@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "$id": "https://meta-skills.dev/schema/v1.json",
+  "title": "Meta-Skills Index",
+  "description": "A lightweight JSON index for agent skill discovery. Agents read this file (~150 tokens) to know what skills exist and when to use them, without loading every SKILL.md upfront.",
+  "type": "object",
+  "required": ["version", "generated", "source", "skills"],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "JSON Schema URI for validation"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+$",
+      "description": "Schema version (semver major.minor)"
+    },
+    "generated": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 timestamp when this index was generated"
+    },
+    "source": {
+      "type": "string",
+      "enum": ["global", "project"],
+      "description": "global = agent-wide skills, project = per-codebase skills"
+    },
+    "skills": {
+      "type": "array",
+      "description": "Active skills available for use",
+      "items": {
+        "$ref": "#/definitions/SkillEntry"
+      }
+    },
+    "stale": {
+      "type": "array",
+      "description": "Archived skills (unused >60 days, kept for reference)",
+      "items": {
+        "$ref": "#/definitions/SkillEntry"
+      }
+    },
+    "project_context": {
+      "type": "object",
+      "description": "Project-specific context (only in project-level meta-skills)",
+      "properties": {
+        "name": { "type": "string" },
+        "tech_stack": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "key_files": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "patterns": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "SkillEntry": {
+      "type": "object",
+      "required": ["id", "when", "why", "path", "priority"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?$",
+          "maxLength": 64,
+          "description": "Skill name (matches SKILL.md frontmatter name)"
+        },
+        "when": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Trigger conditions — when should the agent activate this skill"
+        },
+        "why": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Rationale — what value this skill provides"
+        },
+        "path": {
+          "type": "string",
+          "description": "Path to the SKILL.md file (relative or absolute)"
+        },
+        "priority": {
+          "type": "string",
+          "enum": ["high", "medium", "low", "archived"],
+          "description": "Priority tier — high always shown, medium/low on demand, archived = stale"
+        },
+        "usage_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of times this skill has been activated"
+        },
+        "last_used": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "description": "ISO-8601 timestamp of last activation"
+        },
+        "archived": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "description": "ISO-8601 timestamp when this skill was archived"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "$schema": "https://meta-skills.dev/schema/v1.json",
+  "version": "1.0",
+  "generated": "2026-06-24T08:48:00+10:00",
+  "source": "project",
+  "project_context": {
+    "name": "clawd",
+    "tech_stack": ["javascript", "node.js", "typescript"],
+    "key_files": ["AGENTS.md", "SOUL.md", "USER.md", "MEMORY.md", "TOOLS.md"],
+    "patterns": ["agent configuration", "skill management", "memory system"]
+  },
+  "skills": [
+    {
+      "id": "wang-yangming-agent-mind",
+      "when": "planning complex tasks, ethical decisions, error recovery, dynamic workflow adjustment",
+      "why": "philosophical framework for agent decision-making grounded in Wang Yangming's Heart-Mind School",
+      "path": "~/.openclaw/skills/wang-yangming-agent-mind/SKILL.md",
+      "priority": "high",
+      "usage_count": 18,
+      "last_used": "2026-06-23T20:00:00+10:00"
+    },
+    {
+      "id": "meta-skills",
+      "when": "setting up or maintaining the meta-skills index, scanning for new skills, updating usage tracking",
+      "why": "self-referential — this skill manages the meta-skills system itself",
+      "path": ".meta-skills/SKILL.md",
+      "priority": "high",
+      "usage_count": 1,
+      "last_used": "2026-06-24T08:48:00+10:00"
+    }
+  ]
+}
