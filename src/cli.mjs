@@ -19,7 +19,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PKG = JSON.parse(fs.readFileSync(path.resolve(__dirname, '..', 'package.json'), 'utf-8'));
@@ -27,7 +27,7 @@ const PKG = JSON.parse(fs.readFileSync(path.resolve(__dirname, '..', 'package.js
 // ── Import all modules ────────────────────────────────────────────────
 
 async function loadModule(name) {
-  return import(path.resolve(__dirname, name));
+  return import(pathToFileURL(path.resolve(__dirname, name)).href);
 }
 
 // ── Commands ──────────────────────────────────────────────────────────

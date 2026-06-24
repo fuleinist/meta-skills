@@ -238,4 +238,7 @@ function main() {
   console.log(`  local skills: ${localSkills.length}`);
 }
 
-main();
+const isMain = process.argv[1] && (process.argv[1] === fileURLToPath(import.meta.url) || process.argv[1].endsWith('project-scanner.mjs'));
+if (isMain) main();
+
+export { main, detectTechStack, detectKeyFiles, detectPatterns, scanLocalSkills, parseFrontmatter, readIfExists };

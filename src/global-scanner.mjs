@@ -144,4 +144,9 @@ function main() {
 }
 
 import os from 'node:os';
-main();
+
+// Only run main when executed directly, not when imported
+const isMain = process.argv[1] && (process.argv[1] === fileURLToPath(import.meta.url) || process.argv[1].endsWith('global-scanner.mjs'));
+if (isMain) main();
+
+export { main, scanDir, mergeEntries, parseFrontmatter, DEFAULT_DIRS, SCHEMA_URL };
