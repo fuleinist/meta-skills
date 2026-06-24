@@ -114,15 +114,26 @@ The meta-skills file:
 4. **Removes stale entries** — skills unused for 30+ days get flagged for review
 5. **Learns project patterns** — detects tech stack, common workflows, key files
 
-## Workflow
+## CLI Usage
+
+### Installation
+
+```bash
+# Clone the repo
+cd meta-skills
+npm install
+
+# Or link globally
+npm link
+```
 
 ### Setup (One-Time)
 
 ```bash
-# Install the meta-skills agent
+# Scan global agent skill directories → ~/.meta-skills/global.json
 meta-skills init --global
 
-# For a specific project
+# Scan current project → .meta-skills/project.json
 cd my-project
 meta-skills init --local
 ```
@@ -132,19 +143,44 @@ This:
 2. Generates `~/.meta-skills/global.json`
 3. Scans project files for context
 4. Generates `<project>/.meta-skills/project.json`
-5. Injects a reference comment into `CLAUDE.md` / Cursor rules
 
 ### Daily Use
 
-The agent reads the meta-skills file at startup (~150 tokens) and knows instantly what's available. When it decides to use a skill, it loads the full `SKILL.md` on demand.
+```bash
+# Record skill activation
+meta-skills record git-commits
+meta-skills record code-review --outcome failure
+
+# Aggregate usage logs into global.json
+meta-skills aggregate
+
+# Run self-improvement loop (promote/demote/archive)
+meta-skills improve
+
+# Full maintenance run (scan + aggregate + improve + project context)
+meta-skills maintain
+
+# Validate against schema
+meta-skills validate ~/.meta-skills/global.json
+
+# Show index summary
+meta-skills status
+```
 
 ### Background Maintenance
 
-A cron job (or heartbeat) runs periodically to:
-- Re-scan for new/changed skills
-- Update usage statistics
-- Prune stale entries
-- Re-generate project context
+Schedule via cron (or OpenClaw cron):
+
+```bash
+# Daily at 3 AM
+0 3 * * * cd /path/to/project && meta-skills maintain
+```
+
+Or use the standalone maintenance script:
+
+```bash
+node src/maintenance.mjs
+```
 
 ## Agent Setup Reference
 
@@ -181,13 +217,13 @@ Before working, scan meta-skills files for available skills.
 
 ## Roadmap
 
-- [ ] **v0.1** — Global scanner: detect skills from Claude Code, Cursor, OpenClaw, Hermes
-- [ ] **v0.2** — Project scanner: extract context from README, CLAUDE.md, tech stack detection
-- [ ] **v0.3** — Usage tracking: record skill activations, update meta-skills JSON
-- [ ] **v0.4** — Self-improvement loop: promote/demote based on usage patterns
-- [ ] **v0.5** — Background cron: periodic re-scan and cleanup
-- [ ] **v0.6** — Schema registry: publish JSON Schema for validation
-- [ ] **v1.0** — Stable release with CLI tool
+- [x] **v0.1** — Global scanner: detect skills from Claude Code, Cursor, OpenClaw, Hermes
+- [x] **v0.2** — Project scanner: extract context from README, CLAUDE.md, tech stack detection
+- [x] **v0.3** — Usage tracking: record skill activations, update meta-skills JSON
+- [x] **v0.4** — Self-improvement loop: promote/demote based on usage patterns
+- [x] **v0.5** — Background cron: periodic re-scan and cleanup
+- [x] **v0.6** — Schema registry: publish JSON Schema for validation
+- [x] **v1.0** — Stable release with CLI tool
 
 ## Related Work
 

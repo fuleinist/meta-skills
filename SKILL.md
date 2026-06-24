@@ -3,7 +3,7 @@ name: meta-skills
 description: A lightweight, self-improving JSON index that lets agents discover all available skills in ~150 tokens. Scans global agent configs (Claude Code, Cursor, OpenClaw, Hermes) and project files to generate a fast-reference skill catalog with usage tracking, auto-promotion, and background maintenance.
 metadata:
   author: community
-  version: "0.1.0"
+  version: "1.0.0"
   schema: https://meta-skills.dev/schema/v1.json
 ---
 
