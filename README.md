@@ -217,6 +217,8 @@ Before working, scan meta-skills files for available skills.
 
 ## Roadmap
 
+### ✅ Completed (v0.1–v1.0)
+
 - [x] **v0.1** — Global scanner: detect skills from Claude Code, Cursor, OpenClaw, Hermes
 - [x] **v0.2** — Project scanner: extract context from README, CLAUDE.md, tech stack detection
 - [x] **v0.3** — Usage tracking: record skill activations, update meta-skills JSON
@@ -225,9 +227,34 @@ Before working, scan meta-skills files for available skills.
 - [x] **v0.6** — Schema registry: publish JSON Schema for validation
 - [x] **v1.0** — Stable release with CLI tool
 
+### 🔮 Next (v1.1–v2.0)
+
+- [ ] **v1.1 — Cross-agent sync** — Share usage patterns and skill metadata across Claude Code, Cursor, OpenClaw, and Gemini CLI agents via a shared `.meta-skills/` directory. Detect which agent last used a skill and sync `usage_count` across runtimes. *Inspired by: EvoSkill's transferable skill concept, multi-agent coordination patterns.*
+
+- [ ] **v1.2 — Skill marketplace integration** — Query [awesome-agent-skills](https://github.com/VoltAgent/awesome-agent-skills) (1497+ skills) and [agentskills.io](https://agentskills.io) registries directly. `meta-skills search "react testing"` → discover + install skills from community repos. *Inspired by: VoltAgent's 1000+ curated skills, agentskills.io registry.*
+
+- [ ] **v1.3 — Failure-based auto-improvement** — When a skill activation records `outcome: failure`, the system automatically proposes a diff to the skill's SKILL.md. Human reviews via PR. Modeled on EvoSkill's Pareto-optimized failure-analysis loop. *Inspired by: EvoSkill (7.3% accuracy gain via failure analysis), BerriAI/self-improving-agent.*
+
+- [ ] **v1.4 — Web dashboard** — A local web UI showing skill usage heatmaps, stale-skill warnings, priority distribution, co-occurrence graphs, and a "bundle explorer". Serves on `localhost` via the existing Node.js runtime. *Inspired by: agentskills.io visual catalog, Claude Code skill stats demand.*
+
+- [ ] **v1.5 — Agent config injection** — Auto-inject meta-skills scan instructions into `CLAUDE.md`, `.cursorrules`, `AGENTS.md`, and Gemini CLI config. Detects existing references and merges gracefully. *Inspired by: Claude best practices docs, progressive disclosure pattern.*
+
+- [ ] **v1.6 — Skill quality scoring** — Score each skill on readability, trigger precision, instruction clarity, and token efficiency. Low-scoring skills get flagged for revision. Uses Claude API to evaluate SKILL.md quality against [Anthropic's best practices](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices). *Inspired by: Anthropic skill authoring best practices (concise, degrees of freedom, 500-line rule).*
+
+- [ ] **v1.7 — Token budget optimizer** — Analyze per-skill token cost vs. usage frequency. Suggest which skills to demote or archive to stay within a configurable context budget (e.g., "keep total active skill metadata under 500 tokens"). *Inspired by: progressive disclosure research (10-tool accuracy ceiling, 150-token meta-skills target).*
+
+- [ ] **v1.8 — Skill bundles & recipes** — Group skills into named bundles ("web-dev" = react + css + api-testing) that load as a unit. Support recipe files that chain skill activations for multi-step workflows. *Inspired by: EvoSkill skill composition, co-occurrence detection from v0.4.*
+
+- [ ] **v1.9 — Semantic search & fuzzy matching** — Replace keyword-based `when` matching with embedding-based semantic search. Skills are indexed by embedding at scan time; `meta-skills search "fix slow database queries"` returns relevant skills even when keywords don't match. *Inspired by: awesome-agent-skills search demands, agentskills.io discovery pattern.*
+
+- [ ] **v2.0 — Autonomous skill evolution** — Full EvoSkill-inspired loop: the system runs a held-out validation task, measures skill effectiveness, proposes mutations (split/merge/rewrite SKILL.md), and keeps only Pareto-improving variants. Human-in-the-loop approval gate. *Inspired by: EvoSkill (7.3% OfficeQA gain, 12.1% SealQA gain, zero-shot transfer), Cognee self-improving skills.*
+
 ## Related Work
 
 - [Agent Skills (agentskills.io)](https://agentskills.io) — The SKILL.md standard this builds on
+- [EvoSkill (arXiv 2603.02766)](https://arxiv.org/html/2603.02766v1) — Self-evolving skill discovery via iterative failure analysis (7.3% accuracy gain)
+- [awesome-agent-skills](https://github.com/VoltAgent/awesome-agent-skills) — 1497+ curated agent skills from official teams and community
+- [Anthropic Skill Best Practices](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices) — Official guide for writing effective SKILL.md files
 - [Library Meta-Skill](https://claudefa.st/blog/guide/mechanics/library-meta-skill) — Centralized skill distribution across projects
 - [Skill Discovery Pattern](https://agents.kour.me/skill-discovery/) — Progressive disclosure for agent capabilities
 - [EvoSkill](https://arxiv.org/html/2603.02766v1) — Self-evolving skill discovery via co-evolutionary verification
