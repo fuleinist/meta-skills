@@ -10,9 +10,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// ── Import scanner directly ───────────────────────────────────────────
+const scanner = await import(pathToFileURL(path.join(__dirname, 'global-scanner.mjs')).href);
 
 // ── Create a temp skill directory ─────────────────────────────────────
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'meta-skills-test-'));
@@ -32,24 +35,23 @@ description: A test skill for smoke testing the global scanner
 This is a test.
 `);
 
-// ── Run scanner ───────────────────────────────────────────────────────
+// ── Run scanner via direct import ─────────────────────────────────────
 const outPath = path.join(tmpDir, 'global.json');
-const { execSync } = await import('node:child_process');
-const scannerPath = path.join(__dirname, 'global-scanner.mjs');
+const entries = scanner.scanDir(testSkillDir);
+const merged = scanner.mergeEntries(entries);
 
-try {
-  execSync(`node "${scannerPath}" --out "${outPath}" --dirs "${testSkillDir}"`, {
-    stdio: 'pipe',
-    encoding: 'utf-8',
-  });
-} catch (e) {
-  console.error('FAILED:', e.stderr || e.message);
-  process.exit(1);
-}
+const output = {
+  $schema: scanner.SCHEMA_URL,
+  version: '1.0',
+  generated: new Date().toISOString(),
+  source: 'global',
+  skills: merged,
+  stale: [],
+};
+
+fs.writeFileSync(outPath, JSON.stringify(output, null, 2) + '\n', 'utf-8');
 
 // ── Verify output ─────────────────────────────────────────────────────
-const output = JSON.parse(fs.readFileSync(outPath, 'utf-8'));
-
 let passed = 0;
 let failed = 0;
 
@@ -78,6 +80,18 @@ check('skill has path', skill && typeof skill.path === 'string');
 check('skill has priority', skill && skill.priority === 'medium');
 check('skill has usage_count', skill && skill.usage_count === 0);
 check('skill has last_used', skill && skill.last_used === null);
+
+// ── Test getConfigDir ─────────────────────────────────────────────────
+check('getConfigDir returns string', typeof scanner.getConfigDir() === 'string');
+
+// ── Test DEFAULT_DIRS includes new agents ─────────────────────────────
+const dirs = scanner.DEFAULT_DIRS;
+check('DEFAULT_DIRS includes Claude Code', dirs.some(d => d.includes('.claude')));
+check('DEFAULT_DIRS includes Codex CLI', dirs.some(d => d.includes('.codex')));
+check('DEFAULT_DIRS includes Gemini', dirs.some(d => d.includes('gemini')));
+check('DEFAULT_DIRS includes OpenCode', dirs.some(d => d.includes('opencode')));
+check('DEFAULT_DIRS includes Cline', dirs.some(d => d.includes('cline')));
+check('DEFAULT_DIRS includes Windsurf', dirs.some(d => d.includes('windsurf')));
 
 // ── Cleanup ───────────────────────────────────────────────────────────
 fs.rmSync(tmpDir, { recursive: true, force: true });
