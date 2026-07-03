@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 
 /**
- * meta-skills v1.0 — CLI Entry Point
+ * meta-skills v1.1 — CLI Entry Point
  *
- * Unified CLI that ties all modules together.
+ * Unified CLI that ties all modules together via direct imports.
  *
  * Usage:
  *   meta-skills init --global          # Scan global skill dirs → global.json
@@ -24,10 +24,27 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PKG = JSON.parse(fs.readFileSync(path.resolve(__dirname, '..', 'package.json'), 'utf-8'));
 
-// ── Import all modules ────────────────────────────────────────────────
+// ── Import all modules directly (no execSync) ─────────────────────────
 
-async function loadModule(name) {
-  return import(pathToFileURL(path.resolve(__dirname, name)).href);
+let _scanner, _projectScanner, _tracker, _improver, _maintainer, _validator;
+
+async function ensureModules() {
+  if (!_scanner) {
+    const [scannerMod, projectMod, trackerMod, improveMod, maintMod, validMod] = await Promise.all([
+      import(pathToFileURL(path.resolve(__dirname, 'global-scanner.mjs')).href),
+      import(pathToFileURL(path.resolve(__dirname, 'project-scanner.mjs')).href),
+      import(pathToFileURL(path.resolve(__dirname, 'usage-tracker.mjs')).href),
+      import(pathToFileURL(path.resolve(__dirname, 'self-improve.mjs')).href),
+      import(pathToFileURL(path.resolve(__dirname, 'maintenance.mjs')).href),
+      import(pathToFileURL(path.resolve(__dirname, 'validate.mjs')).href),
+    ]);
+    _scanner = scannerMod;
+    _projectScanner = projectMod;
+    _tracker = trackerMod;
+    _improver = improveMod;
+    _maintainer = maintMod;
+    _validator = validMod;
+  }
 }
 
 // ── Commands ──────────────────────────────────────────────────────────
@@ -37,36 +54,26 @@ async function cmdInit(args) {
   const isLocal = args.includes('--local');
 
   if (isGlobal) {
-    const { default: scanner } = await loadModule('global-scanner.mjs');
-    // We need to re-export main as a callable
+    await ensureModules();
     const outIdx = args.indexOf('--out');
     const outPath = outIdx >= 0 ? path.resolve(args[outIdx + 1]) : null;
     const dirsIdx = args.indexOf('--dirs');
     const dirs = dirsIdx >= 0 ? args[dirsIdx + 1].split(',').map(s => s.trim()) : null;
 
-    // Call scanner programmatically
-    const SCHEMA_URL = 'https://meta-skills.dev/schema/v1.json';
-    const DEFAULT_DIRS = [
-      path.join(os.homedir(), '.claude', 'skills'),
-      path.join(os.homedir(), '.cursor', 'skills'),
-      path.join(os.homedir(), '.openclaw', 'skills'),
-      path.join(os.homedir(), '.hermes', 'skills'),
-    ];
-
-    const scanDirs = dirs || DEFAULT_DIRS;
+    const scanDirs = dirs || _scanner.DEFAULT_DIRS;
     const allEntries = [];
     for (const dir of scanDirs) {
-      const found = scanDir(dir);
+      const found = _scanner.scanDir(dir);
       allEntries.push(...found);
     }
-    const merged = mergeEntries(allEntries);
+    const merged = _scanner.mergeEntries(allEntries);
 
     const outputPath = outPath || path.join(os.homedir(), '.meta-skills', 'global.json');
     const outDir = path.dirname(outputPath);
     if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
 
     const output = {
-      $schema: SCHEMA_URL,
+      $schema: _scanner.SCHEMA_URL,
       version: '1.0',
       generated: new Date().toISOString(),
       source: 'global',
@@ -80,10 +87,9 @@ async function cmdInit(args) {
   }
 
   if (isLocal) {
+    await ensureModules();
     const projectDir = process.cwd();
-    const { default: projectScanner } = await loadModule('project-scanner.mjs');
-
-    const readme = readIfExists(path.join(projectDir, 'README.md'));
+    const readme = _projectScanner.readIfExists(path.join(projectDir, 'README.md'));
     const projectName = readme
       ? (readme.match(/^#\s+(.+)/m)?.[1]?.trim() || path.basename(projectDir))
       : path.basename(projectDir);
@@ -99,11 +105,11 @@ async function cmdInit(args) {
       source: 'project',
       project_context: {
         name: projectName,
-        tech_stack: detectTechStack(projectDir),
-        key_files: detectKeyFiles(projectDir),
-        patterns: detectPatterns(readme),
+        tech_stack: _projectScanner.detectTechStack(projectDir),
+        key_files: _projectScanner.detectKeyFiles(projectDir),
+        patterns: _projectScanner.detectPatterns(readme),
       },
-      skills: scanLocalSkills(projectDir),
+      skills: _projectScanner.scanLocalSkills(projectDir),
     };
 
     fs.writeFileSync(outputPath, JSON.stringify(output, null, 2) + '\n', 'utf-8');
@@ -112,153 +118,60 @@ async function cmdInit(args) {
   }
 }
 
-function scanDir(skillsDir) {
-  const entries = [];
-  if (!fs.existsSync(skillsDir)) return entries;
-  let skillDirs;
-  try { skillDirs = fs.readdirSync(skillsDir, { withFileTypes: true }); } catch { return entries; }
-  for (const dirent of skillDirs) {
-    if (!dirent.isDirectory()) continue;
-    const skillPath = path.join(skillsDir, dirent.name, 'SKILL.md');
-    if (!fs.existsSync(skillPath)) continue;
-    const content = fs.readFileSync(skillPath, 'utf-8');
-    const frontmatter = parseFrontmatter(content);
-    entries.push({
-      id: frontmatter.name || dirent.name,
-      when: frontmatter.description || '',
-      why: frontmatter.description || '',
-      path: skillPath,
-      priority: 'medium',
-      usage_count: 0,
-      last_used: null,
-    });
-  }
-  return entries;
-}
-
-function mergeEntries(entries) {
-  const map = new Map();
-  for (const e of entries) {
-    if (map.has(e.id)) {
-      const existing = map.get(e.id);
-      if (e.path.length < existing.path.length) map.set(e.id, e);
-    } else map.set(e.id, e);
-  }
-  return Array.from(map.values());
-}
-
-function parseFrontmatter(text) {
-  const match = text.match(/^---\s*\n([\s\S]*?)\n---/);
-  if (!match) return {};
-  const obj = {};
-  for (const line of match[1].split('\n')) {
-    const kv = line.match(/^\s*(\w+)\s*:\s*(.+)$/);
-    if (kv) {
-      let val = kv[2].trim();
-      if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) val = val.slice(1, -1);
-      obj[kv[1]] = val;
-    }
-  }
-  return obj;
-}
-
-function readIfExists(filePath) {
-  try { return fs.readFileSync(filePath, 'utf-8'); } catch { return null; }
-}
-
-function detectTechStack(projectDir) {
-  const stack = new Set();
-  const pkgContent = readIfExists(path.join(projectDir, 'package.json'));
-  if (pkgContent) {
-    try {
-      const pkg = JSON.parse(pkgContent);
-      const deps = { ...pkg.dependencies, ...pkg.devDependencies };
-      if (deps.react || deps['react-dom']) stack.add('react');
-      if (deps.next) stack.add('next.js');
-      if (deps.express || deps.fastify || deps.koa) stack.add('node.js');
-      if (deps.typescript) stack.add('typescript');
-    } catch { /* skip */ }
-  }
-  const pyContent = readIfExists(path.join(projectDir, 'pyproject.toml'));
-  if (pyContent) {
-    if (pyContent.includes('django')) stack.add('django');
-    if (pyContent.includes('fastapi')) stack.add('fastapi');
-  }
-  return Array.from(stack).sort();
-}
-
-function detectKeyFiles(projectDir) {
-  const candidates = ['README.md', 'CLAUDE.md', '.cursorrules', 'AGENTS.md', 'docker-compose.yml'];
-  return candidates.filter(f => fs.existsSync(path.join(projectDir, f)));
-}
-
-function detectPatterns(readmeContent) {
-  if (!readmeContent) return [];
-  const patterns = [];
-  const lower = readmeContent.toLowerCase();
-  const keywords = [
-    ['clean architecture', 'clean architecture'],
-    ['repository pattern', 'repository pattern'],
-    ['microservices', 'microservices'],
-    ['event-driven', 'event-driven'],
-    ['domain-driven', 'domain-driven design'],
-    ['test-driven', 'test-driven development'],
-    ['ci/cd', 'CI/CD'],
-    ['monorepo', 'monorepo'],
-  ];
-  for (const [keyword, label] of keywords) {
-    if (lower.includes(keyword)) patterns.push(label);
-  }
-  return patterns;
-}
-
-function scanLocalSkills(projectDir) {
-  const metaDir = path.join(projectDir, '.meta-skills');
-  if (!fs.existsSync(metaDir)) return [];
-  const entries = [];
-  let dirs;
-  try { dirs = fs.readdirSync(metaDir, { withFileTypes: true }); } catch { return entries; }
-  for (const dirent of dirs) {
-    if (!dirent.isDirectory()) continue;
-    const skillPath = path.join(metaDir, dirent.name, 'SKILL.md');
-    if (!fs.existsSync(skillPath)) continue;
-    const content = fs.readFileSync(skillPath, 'utf-8');
-    const fm = parseFrontmatter(content);
-    entries.push({ id: fm.name || dirent.name, when: fm.description || '', why: fm.description || '', path: skillPath, priority: 'medium', usage_count: 0, last_used: null });
-  }
-  return entries;
-}
-
 async function cmdRecord(args) {
-  const { default: tracker } = await loadModule('usage-tracker.mjs');
-  // Re-execute the tracker CLI with remaining args
-  const { execSync } = await import('node:child_process');
-  const trackerPath = path.resolve(__dirname, 'usage-tracker.mjs');
-  const result = execSync(`node "${trackerPath}" record ${args.join(' ')}`, { stdio: 'inherit', encoding: 'utf-8' });
+  await ensureModules();
+  const options = {};
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--outcome' && i + 1 < args.length) options.outcome = args[++i];
+    else if (args[i] === '--log-dir' && i + 1 < args.length) options.logDir = path.resolve(args[++i]);
+    else if (!options.skillId) options.skillId = args[i];
+  }
+  if (!options.skillId) { console.error('✗ missing skill-id'); process.exit(1); }
+  _tracker.cmdRecord(options.skillId, options);
 }
 
 async function cmdAggregate(args) {
-  const { execSync } = await import('node:child_process');
-  const trackerPath = path.resolve(__dirname, 'usage-tracker.mjs');
-  execSync(`node "${trackerPath}" aggregate ${args.join(' ')}`, { stdio: 'inherit', encoding: 'utf-8' });
+  await ensureModules();
+  const options = {};
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--global-json' && i + 1 < args.length) options.globalJson = path.resolve(args[++i]);
+    else if (args[i] === '--log-dir' && i + 1 < args.length) options.logDir = path.resolve(args[++i]);
+    else if (args[i] === '--out' && i + 1 < args.length) options.out = path.resolve(args[++i]);
+  }
+  _tracker.cmdAggregate(options);
 }
 
 async function cmdImprove(args) {
-  const { execSync } = await import('node:child_process');
-  const improvePath = path.resolve(__dirname, 'self-improve.mjs');
-  execSync(`node "${improvePath}" ${args.join(' ')}`, { stdio: 'inherit', encoding: 'utf-8' });
+  await ensureModules();
+  const options = {};
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--global-json' && i + 1 < args.length) options.globalJson = path.resolve(args[++i]);
+    else if (args[i] === '--out' && i + 1 < args.length) options.out = path.resolve(args[++i]);
+    else if (args[i] === '--log-dir' && i + 1 < args.length) options.logDir = path.resolve(args[++i]);
+    else if (args[i] === '--dry-run') options.dryRun = true;
+  }
+  _improver.main(options);
 }
 
 async function cmdMaintain(args) {
-  const { execSync } = await import('node:child_process');
-  const maintPath = path.resolve(__dirname, 'maintenance.mjs');
-  execSync(`node "${maintPath}" ${args.join(' ')}`, { stdio: 'inherit', encoding: 'utf-8' });
+  await ensureModules();
+  const options = {};
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--project-dir' && i + 1 < args.length) options.projectDir = path.resolve(args[++i]);
+    else if (args[i] === '--dry-run') options.dryRun = true;
+  }
+  _maintainer.main(options);
 }
 
 async function cmdValidate(args) {
-  const { execSync } = await import('node:child_process');
-  const validatePath = path.resolve(__dirname, 'validate.mjs');
-  execSync(`node "${validatePath}" ${args.join(' ')}`, { stdio: 'inherit', encoding: 'utf-8' });
+  await ensureModules();
+  const files = [];
+  let schemaPath = null;
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--schema' && i + 1 < args.length) schemaPath = path.resolve(args[++i]);
+    else files.push(path.resolve(args[i]));
+  }
+  _validator.main({ files, schemaPath });
 }
 
 function cmdStatus() {
@@ -284,22 +197,52 @@ function cmdStatus() {
   console.log(`  Generated: ${index.generated}`);
 }
 
+function showHelp() {
+  console.log(`meta-skills v${PKG.version} — Agent Skill Index`);
+  console.log('');
+  console.log('Usage:');
+  console.log('  meta-skills <command> [options]');
+  console.log('');
+  console.log('Commands:');
+  console.log('  init --global              Scan global skill directories → global.json');
+  console.log('  init --local               Scan project for context → project.json');
+  console.log('  record <skill-id>          Record a skill activation');
+  console.log('  aggregate                  Aggregate usage logs into index');
+  console.log('  improve                    Self-improvement loop (promote/demote)');
+  console.log('  maintain                   Full maintenance run (scan + aggregate + improve)');
+  console.log('  validate <file>            Validate a meta-skills JSON file');
+  console.log('  status                     Show index summary');
+  console.log('');
+  console.log('Options:');
+  console.log('  --help                     Show this help message');
+  console.log('  --version                  Show version number');
+  console.log('  --dry-run                  Preview changes without writing');
+  console.log('  --out <path>               Custom output path');
+  console.log('  --log-dir <path>           Custom log directory');
+  console.log('  --global-json <path>       Custom global.json path');
+  console.log('  --dirs <dir1,dir2,...>     Custom skill directories to scan');
+  console.log('  --project-dir <path>       Custom project directory');
+  console.log('  --schema <path>            Custom schema file (for validate)');
+  console.log('  --outcome success|failure  Outcome of skill activation (for record)');
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 async function main() {
   const args = process.argv.slice(2);
+
+  // Handle --help and --version globally
+  if (args.includes('--help') || args.includes('-h')) {
+    showHelp();
+    return;
+  }
+  if (args.includes('--version') || args.includes('-v')) {
+    console.log(PKG.version);
+    return;
+  }
+
   if (args.length === 0) {
-    console.log(`meta-skills v${PKG.version}`);
-    console.log('');
-    console.log('Usage:');
-    console.log('  meta-skills init --global          Scan global skill dirs');
-    console.log('  meta-skills init --local           Scan project for context');
-    console.log('  meta-skills record <skill-id>      Record skill activation');
-    console.log('  meta-skills aggregate              Aggregate usage logs');
-    console.log('  meta-skills improve                Self-improvement loop');
-    console.log('  meta-skills maintain               Full maintenance run');
-    console.log('  meta-skills validate <file>        Validate against schema');
-    console.log('  meta-skills status                 Show index summary');
+    showHelp();
     return;
   }
 
@@ -317,6 +260,7 @@ async function main() {
       case 'status':   cmdStatus(); break;
       default:
         console.error(`✗ unknown command: ${command}`);
+        console.error('  Run `meta-skills --help` for usage.');
         process.exit(1);
     }
   } catch (e) {

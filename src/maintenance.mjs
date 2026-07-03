@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * meta-skills v0.5 — Background Cron (Maintenance)
+ * meta-skills v1.1 — Background Cron (Maintenance)
  *
  * Orchestrates all previous modules in a single daily maintenance run:
  * 1. Re-scan global skill directories
@@ -322,14 +322,18 @@ function stepGitCommit(projectDir, dryRun) {
 
 // ── Main ──────────────────────────────────────────────────────────────
 
-function main() {
-  const args = process.argv.slice(2);
-  let projectDir = process.cwd();
-  let dryRun = false;
+function main(options) {
+  const opts = options || {};
+  let projectDir = opts.projectDir || process.cwd();
+  let dryRun = opts.dryRun || false;
 
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] === '--project-dir' && i + 1 < args.length) projectDir = path.resolve(args[++i]);
-    else if (args[i] === '--dry-run') dryRun = true;
+  // If called standalone (no options), parse from argv
+  if (!opts || Object.keys(opts).length === 0) {
+    const args = process.argv.slice(2);
+    for (let i = 0; i < args.length; i++) {
+      if (args[i] === '--project-dir' && i + 1 < args.length) projectDir = path.resolve(args[++i]);
+      else if (args[i] === '--dry-run') dryRun = true;
+    }
   }
 
   // Ensure meta-skills dir exists
@@ -370,4 +374,7 @@ function main() {
   }
 }
 
-main();
+const isMain = process.argv[1] && (process.argv[1] === fileURLToPath(import.meta.url) || process.argv[1].endsWith('maintenance.mjs'));
+if (isMain) main({});
+
+export { main, stepRescan, stepAggregate, stepSelfImprove, stepProjectContext, stepGitCommit };

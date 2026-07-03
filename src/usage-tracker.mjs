@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * meta-skills v0.3 — Usage Tracking
+ * meta-skills v1.1 — Usage Tracking
  *
  * Records skill activations and aggregates usage logs into meta-skills JSON.
  *
@@ -19,6 +19,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { fileURLToPath } from 'node:url';
 
 const SCHEMA_URL = 'https://meta-skills.dev/schema/v1.json';
 
@@ -199,4 +200,7 @@ function main() {
   }
 }
 
-main();
+const isMain = process.argv[1] && (process.argv[1] === fileURLToPath(import.meta.url) || process.argv[1].endsWith('usage-tracker.mjs'));
+if (isMain) main();
+
+export { cmdRecord, cmdAggregate, cmdRotate, main };

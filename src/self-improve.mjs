@@ -12,6 +12,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { fileURLToPath } from 'node:url';
 
 const SCHEMA_URL = 'https://meta-skills.dev/schema/v1.json';
 
@@ -148,18 +149,22 @@ function detectCooccurrence(logDir) {
 
 // ── Main ──────────────────────────────────────────────────────────────
 
-function main() {
-  const args = process.argv.slice(2);
-  let globalJsonPath = path.join(os.homedir(), '.meta-skills', 'global.json');
-  let outPath = null;
-  let dryRun = false;
-  let logDir = path.join(os.homedir(), '.meta-skills', 'logs');
+function main(options) {
+  const opts = options || {};
+  let globalJsonPath = opts.globalJson || path.join(os.homedir(), '.meta-skills', 'global.json');
+  let outPath = opts.out || null;
+  let dryRun = opts.dryRun || false;
+  let logDir = opts.logDir || path.join(os.homedir(), '.meta-skills', 'logs');
 
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] === '--global-json' && i + 1 < args.length) globalJsonPath = path.resolve(args[++i]);
-    else if (args[i] === '--out' && i + 1 < args.length) outPath = path.resolve(args[++i]);
-    else if (args[i] === '--log-dir' && i + 1 < args.length) logDir = path.resolve(args[++i]);
-    else if (args[i] === '--dry-run') dryRun = true;
+  // If called standalone (no options passed), parse from argv
+  if (!opts || Object.keys(opts).length === 0) {
+    const args = process.argv.slice(2);
+    for (let i = 0; i < args.length; i++) {
+      if (args[i] === '--global-json' && i + 1 < args.length) globalJsonPath = path.resolve(args[++i]);
+      else if (args[i] === '--out' && i + 1 < args.length) outPath = path.resolve(args[++i]);
+      else if (args[i] === '--log-dir' && i + 1 < args.length) logDir = path.resolve(args[++i]);
+      else if (args[i] === '--dry-run') dryRun = true;
+    }
   }
 
   if (!outPath) outPath = globalJsonPath;
@@ -224,4 +229,12 @@ function main() {
   console.log(`  ${active.length} active, ${stale.length} stale, ${bundles.length} bundle suggestions`);
 }
 
-main();
+// Export for direct import by CLI
+function runAsCLI() {
+  main({});
+}
+
+const isMain = process.argv[1] && (process.argv[1] === fileURLToPath(import.meta.url) || process.argv[1].endsWith('self-improve.mjs'));
+if (isMain) runAsCLI();
+
+export { main, applyPromotionDemotion, detectStale, detectCooccurrence };
