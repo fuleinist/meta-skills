@@ -28,14 +28,42 @@ const META_SKILLS_DIR = path.join(os.homedir(), '.meta-skills');
 const GLOBAL_JSON = path.join(META_SKILLS_DIR, 'global.json');
 const LOG_DIR = path.join(META_SKILLS_DIR, 'logs');
 
-// ── Agent skill directories to scan ───────────────────────────────────
+// ── Agent skill directories to scan (platform-aware) ───────────────────
 
-const AGENT_DIRS = [
-  path.join(os.homedir(), '.claude', 'skills'),
-  path.join(os.homedir(), '.cursor', 'skills'),
-  path.join(os.homedir(), '.openclaw', 'skills'),
-  path.join(os.homedir(), '.hermes', 'skills'),
-];
+function getConfigDir() {
+  if (process.env.XDG_CONFIG_HOME) return process.env.XDG_CONFIG_HOME;
+  if (process.env.APPDATA) return process.env.APPDATA;
+  return path.join(os.homedir(), '.config');
+}
+
+function getLocalAppData() {
+  if (process.env.LOCALAPPDATA) return process.env.LOCALAPPDATA;
+  return path.join(os.homedir(), 'AppData', 'Local');
+}
+
+const AGENT_DIRS = (() => {
+  const home = os.homedir();
+  const configDir = getConfigDir();
+  const localAppData = getLocalAppData();
+  const isWin = process.platform === 'win32';
+
+  return [
+    path.join(home, '.claude', 'skills'),
+    path.join(home, '.cursor', 'skills'),
+    path.join(home, '.openclaw', 'skills'),
+    path.join(home, '.hermes', 'skills'),
+    path.join(home, '.codex', 'skills'),
+    path.join(configDir, 'gemini', 'skills'),
+    path.join(configDir, 'opencode', 'skills'),
+    path.join(configDir, 'cline', 'skills'),
+    path.join(configDir, 'roo', 'skills'),
+    path.join(configDir, 'windsurf', 'skills'),
+    ...(isWin ? [
+      path.join(localAppData, 'Cursor', 'skills'),
+      path.join(localAppData, 'Claude', 'skills'),
+    ] : []),
+  ];
+})();
 
 // ── Helpers ───────────────────────────────────────────────────────────
 
