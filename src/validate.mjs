@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * meta-skills v0.6 — Schema Validator
+ * meta-skills v1.1 — Schema Validator
  *
  * Validates meta-skills JSON files against the v1 schema.
  *
@@ -123,16 +123,20 @@ function validateAgainstSchema(data, schema) {
 
 // ── Main ──────────────────────────────────────────────────────────────
 
-function main() {
-  const args = process.argv.slice(2);
-  let schemaPath = DEFAULT_SCHEMA;
-  const files = [];
+function main(options) {
+  const opts = options || {};
+  let schemaPath = opts.schemaPath || DEFAULT_SCHEMA;
+  const files = opts.files || [];
 
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] === '--schema' && i + 1 < args.length) {
-      schemaPath = path.resolve(args[++i]);
-    } else {
-      files.push(path.resolve(args[i]));
+  // If called standalone (no options), parse from argv
+  if (!opts || Object.keys(opts).length === 0) {
+    const args = process.argv.slice(2);
+    for (let i = 0; i < args.length; i++) {
+      if (args[i] === '--schema' && i + 1 < args.length) {
+        schemaPath = path.resolve(args[++i]);
+      } else {
+        files.push(path.resolve(args[i]));
+      }
     }
   }
 
@@ -176,4 +180,7 @@ function main() {
   process.exit(totalErrors > 0 ? 1 : 0);
 }
 
-main();
+const isMain = process.argv[1] && (process.argv[1] === fileURLToPath(import.meta.url) || process.argv[1].endsWith('validate.mjs'));
+if (isMain) main({});
+
+export { main, validateAgainstSchema };
