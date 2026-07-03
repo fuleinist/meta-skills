@@ -14,6 +14,7 @@
  *   meta-skills maintain               # Full maintenance run
  *   meta-skills validate <file>        # Validate against schema
  *   meta-skills status                 # Show index summary
+ *   meta-skills status --json          # Show index summary as JSON
  */
 
 import fs from 'node:fs';
@@ -174,10 +175,15 @@ async function cmdValidate(args) {
   _validator.main({ files, schemaPath });
 }
 
-function cmdStatus() {
+function cmdStatus(args) {
+  const asJson = args.includes('--json');
   const globalPath = path.join(os.homedir(), '.meta-skills', 'global.json');
   if (!fs.existsSync(globalPath)) {
-    console.log('meta-skills: no global.json found. Run `meta-skills init --global` first.');
+    if (asJson) {
+      console.log(JSON.stringify({ error: 'no global.json found', hint: 'Run `meta-skills init --global` first.' }));
+    } else {
+      console.log('meta-skills: no global.json found. Run `meta-skills init --global` first.');
+    }
     return;
   }
   const index = JSON.parse(fs.readFileSync(globalPath, 'utf-8'));
@@ -189,12 +195,52 @@ function cmdStatus() {
   const totalUsage = index.skills.reduce((sum, s) => sum + (s.usage_count || 0), 0);
   const bundles = (index.suggested_bundles || []).length;
 
-  console.log(`meta-skills v${PKG.version}`);
-  console.log(`  Skills: ${active} active, ${stale} stale`);
-  console.log(`  Priority: ${high} high, ${medium} medium, ${low} low`);
-  console.log(`  Total activations: ${totalUsage}`);
-  if (bundles > 0) console.log(`  Suggested bundles: ${bundles}`);
-  console.log(`  Generated: ${index.generated}`);
+  if (asJson) {
+    console.log(JSON.stringify({
+      version: PKG.version,
+      skills: { active, stale, high, medium, low },
+      totalActivations: totalUsage,
+      suggestedBundles: bundles,
+      generated: index.generated,
+    }, null, 2));
+  } else {
+    console.log(`meta-skills v${PKG.version}`);
+    console.log(`  Skills: ${active} active, ${stale} stale`);
+    console.log(`  Priority: ${high} high, ${medium} medium, ${low} low`);
+    console.log(`  Total activations: ${totalUsage}`);
+    if (bundles > 0) console.log(`  Suggested bundles: ${bundles}`);
+    console.log(`  Generated: ${index.generated}`);
+  }
+}
+
+function showHelp() {
+  console.log(`meta-skills v${PKG.version} — Agent Skill Index`);
+  console.log('');
+  console.log('Usage:');
+  console.log('  meta-skills <command> [options]');
+  console.log('');
+  console.log('Commands:');
+  console.log('  init --global              Scan global skill directories → global.json');
+  console.log('  init --local               Scan project for context → project.json');
+  console.log('  record <skill-id>          Record a skill activation');
+  console.log('  aggregate                  Aggregate usage logs into index');
+  console.log('  improve                    Self-improvement loop (promote/demote)');
+  console.log('  maintain                   Full maintenance run (scan + aggregate + improve)');
+  console.log('  validate <file>            Validate a meta-skills JSON file');
+  console.log('  status                     Show index summary');
+  console.log('  status --json              Show index summary as JSON');
+  console.log('');
+  console.log('Options:');
+  console.log('  --help                     Show this help message');
+  console.log('  --version                  Show version number');
+  console.log('  --dry-run                  Preview changes without writing');
+  console.log('  --out <path>               Custom output path');
+  console.log('  --log-dir <path>           Custom log directory');
+  console.log('  --global-json <path>       Custom global.json path');
+  console.log('  --dirs <dir1,dir2,...>     Custom skill directories to scan');
+  console.log('  --project-dir <path>       Custom project directory');
+  console.log('  --schema <path>            Custom schema file (for validate)');
+  console.log('  --outcome success|failure  Outcome of skill activation (for record)');
 }
 
 function showHelp() {
@@ -257,7 +303,7 @@ async function main() {
       case 'improve':  await cmdImprove(rest); break;
       case 'maintain': await cmdMaintain(rest); break;
       case 'validate': await cmdValidate(rest); break;
-      case 'status':   cmdStatus(); break;
+      case 'status':   cmdStatus(rest); break;
       default:
         console.error(`✗ unknown command: ${command}`);
         console.error('  Run `meta-skills --help` for usage.');
