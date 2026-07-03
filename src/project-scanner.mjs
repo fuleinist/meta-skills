@@ -47,6 +47,9 @@ const DETECTORS = [
     if (content.includes('axum') || content.includes('actix')) stack.push('rust');
     if (content.includes('tokio')) stack.push('tokio');
     if (content.includes('serde')) stack.push('serde');
+    if (content.includes('leptos') || content.includes('yew') || content.includes('dioxus')) stack.push('wasm');
+    if (content.includes('bevy')) stack.push('bevy');
+    if (content.includes('tauri')) stack.push('tauri');
     return stack;
   }},
   // Gemfile
@@ -54,10 +57,61 @@ const DETECTORS = [
     const stack = [];
     if (content.includes('rails') || content.includes('railst')) stack.push('rails');
     if (content.includes('sinatra')) stack.push('sinatra');
+    if (content.includes('jekyll')) stack.push('jekyll');
     return stack;
   }},
   // go.mod
-  { file: 'go.mod', detect: () => ['go'] },
+  { file: 'go.mod', detect: (content) => {
+    const stack = ['go'];
+    if (content.includes('github.com/gin-gonic/gin')) stack.push('gin');
+    if (content.includes('github.com/labstack/echo')) stack.push('echo');
+    if (content.includes('github.com/gofiber/fiber')) stack.push('fiber');
+    if (content.includes('github.com/gorilla/mux')) stack.push('gorilla');
+    return stack;
+  }},
+  // requirements.txt (Python)
+  { file: 'requirements.txt', detect: (content) => {
+    const stack = [];
+    if (content.includes('django')) stack.push('django');
+    if (content.includes('fastapi')) stack.push('fastapi');
+    if (content.includes('flask')) stack.push('flask');
+    if (content.includes('torch') || content.includes('pytorch')) stack.push('pytorch');
+    if (content.includes('tensorflow')) stack.push('tensorflow');
+    if (content.includes('pandas')) stack.push('pandas');
+    if (content.includes('numpy')) stack.push('numpy');
+    return stack;
+  }},
+  // pubspec.yaml (Dart/Flutter)
+  { file: 'pubspec.yaml', detect: (content) => {
+    const stack = [];
+    if (content.includes('flutter')) stack.push('flutter');
+    if (content.includes('dart')) stack.push('dart');
+    return stack;
+  }},
+  // build.gradle (Kotlin/Java)
+  { file: 'build.gradle', detect: (content) => {
+    const stack = [];
+    if (content.includes('kotlin')) stack.push('kotlin');
+    if (content.includes('spring')) stack.push('spring');
+    if (content.includes('android')) stack.push('android');
+    return stack;
+  }},
+  // build.gradle.kts (Kotlin DSL)
+  { file: 'build.gradle.kts', detect: (content) => {
+    const stack = [];
+    if (content.includes('kotlin')) stack.push('kotlin');
+    if (content.includes('spring')) stack.push('spring');
+    if (content.includes('android')) stack.push('android');
+    return stack;
+  }},
+  // CMakeLists.txt
+  { file: 'CMakeLists.txt', detect: () => ['cmake'] },
+  // Deno
+  { file: 'deno.json', detect: () => ['deno'] },
+  { file: 'deno.jsonc', detect: () => ['deno'] },
+  // Bun
+  { file: 'bun.lock', detect: () => ['bun'] },
+  { file: 'bun.lockb', detect: () => ['bun'] },
 ];
 
 // ── Helpers ───────────────────────────────────────────────────────────
@@ -97,7 +151,8 @@ function detectKeyFiles(projectDir) {
   const candidates = [
     'README.md', 'CLAUDE.md', '.cursorrules', 'AGENTS.md',
     'CONTRIBUTING.md', 'CHANGELOG.md', 'docker-compose.yml',
-    '.env.example', 'Makefile', 'justfile',
+    'Dockerfile', '.env.example', 'Makefile', 'justfile',
+    '.github/workflows', '.gitlab-ci.yml', '.gitignore',
   ];
   return candidates.filter(f => fs.existsSync(path.join(projectDir, f)));
 }
