@@ -8,11 +8,14 @@
     "meta-skills": "src/cli.mjs"
   },
   "scripts": {
-    "test": "node src/global-scanner.test.mjs && node src/project-scanner.test.mjs && node src/usage-tracker.test.mjs && node src/self-improve.test.mjs && node src/maintenance.test.mjs && node src/validate.test.mjs",
+    "test": "node src/global-scanner.test.mjs && node src/project-scanner.test.mjs && node src/usage-tracker.test.mjs && node src/self-improve.test.mjs && node src/maintenance.test.mjs && node src/validate.test.mjs && node src/sync.test.mjs",
     "init:global": "node src/cli.mjs init --global",
     "init:local": "node src/cli.mjs init --local",
     "maintain": "node src/cli.mjs maintain",
-    "status": "node src/cli.mjs status"
+    "status": "node src/cli.mjs status",
+    "sync": "node src/cli.mjs sync",
+    "sync:push": "node src/cli.mjs sync push",
+    "sync:pull": "node src/cli.mjs sync pull"
   },
   "keywords": [
     "meta-skills",

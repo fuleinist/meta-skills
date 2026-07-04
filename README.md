@@ -1,45 +1,45 @@
-# 🧠 Meta-Skills: The Agent's Skill Index
+# ðŸ§  Meta-Skills: The Agent's Skill Index
 
 > A lightweight, self-improving skill discovery layer for AI agents.
 
 ## The Problem
 
-Modern AI agents (Claude Code, Cursor, OpenClaw, Hermes, Codex CLI) accumulate **dozens to hundreds of skills** across global configs and project-specific setups. Each skill has a `SKILL.md` with detailed instructions — but the agent has no quick way to **know what skills exist and when to use them** without loading every single file.
+Modern AI agents (Claude Code, Cursor, OpenClaw, Hermes, Codex CLI) accumulate **dozens to hundreds of skills** across global configs and project-specific setups. Each skill has a `SKILL.md` with detailed instructions â€” but the agent has no quick way to **know what skills exist and when to use them** without loading every single file.
 
 The result: agents either:
-- Load all skills upfront → **context bloat, token waste**
-- Miss relevant skills entirely → **underutilized capabilities**
-- Duplicate effort across projects → **fragmented knowledge**
+- Load all skills upfront â†’ **context bloat, token waste**
+- Miss relevant skills entirely â†’ **underutilized capabilities**
+- Duplicate effort across projects â†’ **fragmented knowledge**
 
 ## The Solution: Meta-Skills
 
-A **meta-skills** file is a lightweight JSON index that sits between the agent's system prompt and the full skill library. It's the **table of contents** for all available capabilities — the agent reads it in <200 tokens and instantly knows:
+A **meta-skills** file is a lightweight JSON index that sits between the agent's system prompt and the full skill library. It's the **table of contents** for all available capabilities â€” the agent reads it in <200 tokens and instantly knows:
 
 > *"Which skills exist? When should I use each one? Where is the full file?"*
 
 ```
-┌─────────────────────────────────────────────────┐
-│                 Agent Context                     │
-│  ┌───────────────────────────────────────────┐   │
-│  │  System Prompt + Agent Setup (CLAUDE.md)   │   │
-│  │  "Always scan meta-skills first" ←─────┐  │   │
-│  └───────────────────────────────────────────┘  │
-│                        │                        │
-│                        ▼                        │
-│  ┌───────────────────────────────────────────┐  │
-│  │  meta-skills.json  (~150 tokens)          │  │
-│  │  ┌─────────┐ ┌──────────┐ ┌──────────┐   │  │
-│  │  │ skill-a │ │ skill-b  │ │ skill-c  │   │  │
-│  │  │ when: X │ │ when: Y  │ │ when: Z  │   │  │
-│  │  └─────────┘ └──────────┘ └──────────┘   │  │
-│  └───────────────────────────────────────────┘  │
-│                        │                        │
-│                        ▼ (on demand)            │
-│  ┌───────────────────────────────────────────┐  │
-│  │  Full SKILL.md files (loaded only when     │  │
-│  │  the skill is activated)                   │  │
-│  └───────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────┘
+â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+â”‚                 Agent Context                     â”‚
+â”‚  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”   â”‚
+â”‚  â”‚  System Prompt + Agent Setup (CLAUDE.md)   â”‚   â”‚
+â”‚  â”‚  "Always scan meta-skills first" â†â”€â”€â”€â”€â”€â”  â”‚   â”‚
+â”‚  â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜  â”‚
+â”‚                        â”‚                        â”‚
+â”‚                        â–¼                        â”‚
+â”‚  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”  â”‚
+â”‚  â”‚  meta-skills.json  (~150 tokens)          â”‚  â”‚
+â”‚  â”‚  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â” â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â” â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”   â”‚  â”‚
+â”‚  â”‚  â”‚ skill-a â”‚ â”‚ skill-b  â”‚ â”‚ skill-c  â”‚   â”‚  â”‚
+â”‚  â”‚  â”‚ when: X â”‚ â”‚ when: Y  â”‚ â”‚ when: Z  â”‚   â”‚  â”‚
+â”‚  â”‚  â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜ â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜ â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜   â”‚  â”‚
+â”‚  â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜  â”‚
+â”‚                        â”‚                        â”‚
+â”‚                        â–¼ (on demand)            â”‚
+â”‚  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”  â”‚
+â”‚  â”‚  Full SKILL.md files (loaded only when     â”‚  â”‚
+â”‚  â”‚  the skill is activated)                   â”‚  â”‚
+â”‚  â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜  â”‚
+â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
 ```
 
 ## Architecture
@@ -87,32 +87,32 @@ A **meta-skills** file is a lightweight JSON index that sits between the agent's
 }
 ```
 
-Each entry is **minimal by design** — just enough for the agent to decide whether to load the full skill.
+Each entry is **minimal by design** â€” just enough for the agent to decide whether to load the full skill.
 
 ### Self-Improvement Loop
 
 ```
-┌──────────────┐     ┌──────────────────┐     ┌───────────────┐
-│  Agent uses  │────▶│  Agent records   │────▶│  Meta-Skills  │
-│  a skill     │     │  usage + outcome │     │  updates:     │
-│              │     │                  │     │  - usage_count│
-│              │     │                  │     │  - last_used  │
-│              │     │                  │     │  - frequency  │
-└──────────────┘     └──────────────────┘     └───────┬───────┘
-                                                       │
-┌──────────────┐     ┌──────────────────┐              │
-│  Background  │◀────│  Periodic scan   │◀─────────────┘
-│  cron job    │     │  detects stale   │
-│  re-indexes  │     │  or new skills   │
-└──────────────┘     └──────────────────┘
+â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”     â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”     â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+â”‚  Agent uses  â”‚â”€â”€â”€â”€â–¶â”‚  Agent records   â”‚â”€â”€â”€â”€â–¶â”‚  Meta-Skills  â”‚
+â”‚  a skill     â”‚     â”‚  usage + outcome â”‚     â”‚  updates:     â”‚
+â”‚              â”‚     â”‚                  â”‚     â”‚  - usage_countâ”‚
+â”‚              â”‚     â”‚                  â”‚     â”‚  - last_used  â”‚
+â”‚              â”‚     â”‚                  â”‚     â”‚  - frequency  â”‚
+â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜     â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜     â””â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”˜
+                                                       â”‚
+â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”     â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”              â”‚
+â”‚  Background  â”‚â—€â”€â”€â”€â”€â”‚  Periodic scan   â”‚â—€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+â”‚  cron job    â”‚     â”‚  detects stale   â”‚
+â”‚  re-indexes  â”‚     â”‚  or new skills   â”‚
+â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜     â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
 ```
 
 The meta-skills file:
-1. **Tracks usage** — which skills are actually used, how often, when last used
-2. **Promotes/demotes** — frequently used skills get higher priority; unused skills sink
-3. **Discovers new skills** — periodic scans detect newly installed skills
-4. **Removes stale entries** — skills unused for 30+ days get flagged for review
-5. **Learns project patterns** — detects tech stack, common workflows, key files
+1. **Tracks usage** â€” which skills are actually used, how often, when last used
+2. **Promotes/demotes** â€” frequently used skills get higher priority; unused skills sink
+3. **Discovers new skills** â€” periodic scans detect newly installed skills
+4. **Removes stale entries** â€” skills unused for 30+ days get flagged for review
+5. **Learns project patterns** â€” detects tech stack, common workflows, key files
 
 ## CLI Usage
 
@@ -130,10 +130,10 @@ npm link
 ### Setup (One-Time)
 
 ```bash
-# Scan global agent skill directories → ~/.meta-skills/global.json
+# Scan global agent skill directories â†’ ~/.meta-skills/global.json
 meta-skills init --global
 
-# Scan current project → .meta-skills/project.json
+# Scan current project â†’ .meta-skills/project.json
 cd my-project
 meta-skills init --local
 ```
@@ -165,6 +165,12 @@ meta-skills validate ~/.meta-skills/global.json
 
 # Show index summary
 meta-skills status
+
+# Cross-agent sync (v1.1+)
+meta-skills sync push             # Upload local logs to shared sync store
+meta-skills sync pull             # Aggregate all agents' events into global.json
+meta-skills sync                  # Combined push + pull
+meta-skills sync status           # Show per-agent contribution summary
 ```
 
 ### Background Maintenance
@@ -209,55 +215,55 @@ Before working, scan meta-skills files for available skills.
 
 ## Why JSON?
 
-- **Parsable by any agent** — no YAML frontmatter to extract
-- **~150 tokens for 20 skills** — fits in any context window
-- **Machine-writable** — easy for background scripts to update usage stats
-- **Schema-validatable** — catch errors before they confuse the agent
-- **Diff-friendly** — git-track changes over time
+- **Parsable by any agent** â€” no YAML frontmatter to extract
+- **~150 tokens for 20 skills** â€” fits in any context window
+- **Machine-writable** â€” easy for background scripts to update usage stats
+- **Schema-validatable** â€” catch errors before they confuse the agent
+- **Diff-friendly** â€” git-track changes over time
 
 ## Roadmap
 
-### ✅ Completed (v0.1–v1.0)
+### âœ… Completed (v0.1â€“v1.0)
 
-- [x] **v0.1** — Global scanner: detect skills from Claude Code, Cursor, OpenClaw, Hermes
-- [x] **v0.2** — Project scanner: extract context from README, CLAUDE.md, tech stack detection
-- [x] **v0.3** — Usage tracking: record skill activations, update meta-skills JSON
-- [x] **v0.4** — Self-improvement loop: promote/demote based on usage patterns
-- [x] **v0.5** — Background cron: periodic re-scan and cleanup
-- [x] **v0.6** — Schema registry: publish JSON Schema for validation
-- [x] **v1.0** — Stable release with CLI tool
+- [x] **v0.1** â€” Global scanner: detect skills from Claude Code, Cursor, OpenClaw, Hermes
+- [x] **v0.2** â€” Project scanner: extract context from README, CLAUDE.md, tech stack detection
+- [x] **v0.3** â€” Usage tracking: record skill activations, update meta-skills JSON
+- [x] **v0.4** â€” Self-improvement loop: promote/demote based on usage patterns
+- [x] **v0.5** â€” Background cron: periodic re-scan and cleanup
+- [x] **v0.6** â€” Schema registry: publish JSON Schema for validation
+- [x] **v1.0** â€” Stable release with CLI tool
 
-### 🔮 Next (v1.1–v2.0)
+### ðŸ”® Next (v1.1â€“v2.0)
 
-- [ ] **v1.1 — Cross-agent sync** — Share usage patterns and skill metadata across Claude Code, Cursor, OpenClaw, and Gemini CLI agents via a shared `.meta-skills/` directory. Detect which agent last used a skill and sync `usage_count` across runtimes. *Inspired by: EvoSkill's transferable skill concept, multi-agent coordination patterns.*
+- [x] **v1.1 â€” Cross-agent sync** â€” Share usage patterns and skill metadata across Claude Code, Cursor, OpenClaw, and Gemini CLI agents via a shared `.meta-skills/sync/` directory. Each agent writes its own events to `~/.meta-skills/sync/<agent>/events.jsonl`. `meta-skills sync push` uploads local logs to the shared store; `meta-skills sync pull` aggregates all agents' events into `global.json`, recording `last_agents` (which agents have used each skill) and `last_synced_agent` (the most recent agent). Agent identity is auto-detected from `META_SKILLS_AGENT` env var, then from agent-specific env vars (`CLAUDE_API_KEY`, `CURSOR_API_KEY`, `OPENCLAW_CONFIG_DIR`, `GEMINI_API_KEY`, etc.), then from process argv. *Inspired by: EvoSkill's transferable skill concept, multi-agent coordination patterns.*
 
-- [ ] **v1.2 — Skill marketplace integration** — Query [awesome-agent-skills](https://github.com/VoltAgent/awesome-agent-skills) (1497+ skills) and [agentskills.io](https://agentskills.io) registries directly. `meta-skills search "react testing"` → discover + install skills from community repos. *Inspired by: VoltAgent's 1000+ curated skills, agentskills.io registry.*
+- [ ] **v1.2 â€” Skill marketplace integration** â€” Query [awesome-agent-skills](https://github.com/VoltAgent/awesome-agent-skills) (1497+ skills) and [agentskills.io](https://agentskills.io) registries directly. `meta-skills search "react testing"` â†’ discover + install skills from community repos. *Inspired by: VoltAgent's 1000+ curated skills, agentskills.io registry.*
 
-- [ ] **v1.3 — Failure-based auto-improvement** — When a skill activation records `outcome: failure`, the system automatically proposes a diff to the skill's SKILL.md. Human reviews via PR. Modeled on EvoSkill's Pareto-optimized failure-analysis loop. *Inspired by: EvoSkill (7.3% accuracy gain via failure analysis), BerriAI/self-improving-agent.*
+- [ ] **v1.3 â€” Failure-based auto-improvement** â€” When a skill activation records `outcome: failure`, the system automatically proposes a diff to the skill's SKILL.md. Human reviews via PR. Modeled on EvoSkill's Pareto-optimized failure-analysis loop. *Inspired by: EvoSkill (7.3% accuracy gain via failure analysis), BerriAI/self-improving-agent.*
 
-- [ ] **v1.4 — Web dashboard** — A local web UI showing skill usage heatmaps, stale-skill warnings, priority distribution, co-occurrence graphs, and a "bundle explorer". Serves on `localhost` via the existing Node.js runtime. *Inspired by: agentskills.io visual catalog, Claude Code skill stats demand.*
+- [ ] **v1.4 â€” Web dashboard** â€” A local web UI showing skill usage heatmaps, stale-skill warnings, priority distribution, co-occurrence graphs, and a "bundle explorer". Serves on `localhost` via the existing Node.js runtime. *Inspired by: agentskills.io visual catalog, Claude Code skill stats demand.*
 
-- [ ] **v1.5 — Agent config injection** — Auto-inject meta-skills scan instructions into `CLAUDE.md`, `.cursorrules`, `AGENTS.md`, and Gemini CLI config. Detects existing references and merges gracefully. *Inspired by: Claude best practices docs, progressive disclosure pattern.*
+- [ ] **v1.5 â€” Agent config injection** â€” Auto-inject meta-skills scan instructions into `CLAUDE.md`, `.cursorrules`, `AGENTS.md`, and Gemini CLI config. Detects existing references and merges gracefully. *Inspired by: Claude best practices docs, progressive disclosure pattern.*
 
-- [ ] **v1.6 — Skill quality scoring** — Score each skill on readability, trigger precision, instruction clarity, and token efficiency. Low-scoring skills get flagged for revision. Uses Claude API to evaluate SKILL.md quality against [Anthropic's best practices](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices). *Inspired by: Anthropic skill authoring best practices (concise, degrees of freedom, 500-line rule).*
+- [ ] **v1.6 â€” Skill quality scoring** â€” Score each skill on readability, trigger precision, instruction clarity, and token efficiency. Low-scoring skills get flagged for revision. Uses Claude API to evaluate SKILL.md quality against [Anthropic's best practices](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices). *Inspired by: Anthropic skill authoring best practices (concise, degrees of freedom, 500-line rule).*
 
-- [ ] **v1.7 — Token budget optimizer** — Analyze per-skill token cost vs. usage frequency. Suggest which skills to demote or archive to stay within a configurable context budget (e.g., "keep total active skill metadata under 500 tokens"). *Inspired by: progressive disclosure research (10-tool accuracy ceiling, 150-token meta-skills target).*
+- [ ] **v1.7 â€” Token budget optimizer** â€” Analyze per-skill token cost vs. usage frequency. Suggest which skills to demote or archive to stay within a configurable context budget (e.g., "keep total active skill metadata under 500 tokens"). *Inspired by: progressive disclosure research (10-tool accuracy ceiling, 150-token meta-skills target).*
 
-- [ ] **v1.8 — Skill bundles & recipes** — Group skills into named bundles ("web-dev" = react + css + api-testing) that load as a unit. Support recipe files that chain skill activations for multi-step workflows. *Inspired by: EvoSkill skill composition, co-occurrence detection from v0.4.*
+- [ ] **v1.8 â€” Skill bundles & recipes** â€” Group skills into named bundles ("web-dev" = react + css + api-testing) that load as a unit. Support recipe files that chain skill activations for multi-step workflows. *Inspired by: EvoSkill skill composition, co-occurrence detection from v0.4.*
 
-- [ ] **v1.9 — Semantic search & fuzzy matching** — Replace keyword-based `when` matching with embedding-based semantic search. Skills are indexed by embedding at scan time; `meta-skills search "fix slow database queries"` returns relevant skills even when keywords don't match. *Inspired by: awesome-agent-skills search demands, agentskills.io discovery pattern.*
+- [ ] **v1.9 â€” Semantic search & fuzzy matching** â€” Replace keyword-based `when` matching with embedding-based semantic search. Skills are indexed by embedding at scan time; `meta-skills search "fix slow database queries"` returns relevant skills even when keywords don't match. *Inspired by: awesome-agent-skills search demands, agentskills.io discovery pattern.*
 
-- [ ] **v2.0 — Autonomous skill evolution** — Full EvoSkill-inspired loop: the system runs a held-out validation task, measures skill effectiveness, proposes mutations (split/merge/rewrite SKILL.md), and keeps only Pareto-improving variants. Human-in-the-loop approval gate. *Inspired by: EvoSkill (7.3% OfficeQA gain, 12.1% SealQA gain, zero-shot transfer), Cognee self-improving skills.*
+- [ ] **v2.0 â€” Autonomous skill evolution** â€” Full EvoSkill-inspired loop: the system runs a held-out validation task, measures skill effectiveness, proposes mutations (split/merge/rewrite SKILL.md), and keeps only Pareto-improving variants. Human-in-the-loop approval gate. *Inspired by: EvoSkill (7.3% OfficeQA gain, 12.1% SealQA gain, zero-shot transfer), Cognee self-improving skills.*
 
 ## Related Work
 
-- [Agent Skills (agentskills.io)](https://agentskills.io) — The SKILL.md standard this builds on
-- [EvoSkill (arXiv 2603.02766)](https://arxiv.org/html/2603.02766v1) — Self-evolving skill discovery via iterative failure analysis (7.3% accuracy gain)
-- [awesome-agent-skills](https://github.com/VoltAgent/awesome-agent-skills) — 1497+ curated agent skills from official teams and community
-- [Anthropic Skill Best Practices](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices) — Official guide for writing effective SKILL.md files
-- [Library Meta-Skill](https://claudefa.st/blog/guide/mechanics/library-meta-skill) — Centralized skill distribution across projects
-- [Skill Discovery Pattern](https://agents.kour.me/skill-discovery/) — Progressive disclosure for agent capabilities
-- [EvoSkill](https://arxiv.org/html/2603.02766v1) — Self-evolving skill discovery via co-evolutionary verification
+- [Agent Skills (agentskills.io)](https://agentskills.io) â€” The SKILL.md standard this builds on
+- [EvoSkill (arXiv 2603.02766)](https://arxiv.org/html/2603.02766v1) â€” Self-evolving skill discovery via iterative failure analysis (7.3% accuracy gain)
+- [awesome-agent-skills](https://github.com/VoltAgent/awesome-agent-skills) â€” 1497+ curated agent skills from official teams and community
+- [Anthropic Skill Best Practices](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices) â€” Official guide for writing effective SKILL.md files
+- [Library Meta-Skill](https://claudefa.st/blog/guide/mechanics/library-meta-skill) â€” Centralized skill distribution across projects
+- [Skill Discovery Pattern](https://agents.kour.me/skill-discovery/) â€” Progressive disclosure for agent capabilities
+- [EvoSkill](https://arxiv.org/html/2603.02766v1) â€” Self-evolving skill discovery via co-evolutionary verification
 
 ---
 

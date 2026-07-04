@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 
 /**
- * meta-skills v1.1 — CLI Entry Point
+ * meta-skills v1.1 Î“Ã‡Ã¶ CLI Entry Point
  *
  * Unified CLI that ties all modules together via direct imports.
  *
  * Usage:
- *   meta-skills init --global          # Scan global skill dirs → global.json
- *   meta-skills init --local           # Scan project → project.json
+ *   meta-skills init --global          # Scan global skill dirs Î“Ã¥Ã† global.json
+ *   meta-skills init --local           # Scan project Î“Ã¥Ã† project.json
  *   meta-skills record <skill-id>      # Record skill activation
  *   meta-skills aggregate              # Aggregate usage logs
  *   meta-skills improve                # Self-improvement loop
@@ -25,19 +25,20 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PKG = JSON.parse(fs.readFileSync(path.resolve(__dirname, '..', 'package.json'), 'utf-8'));
 
-// ── Import all modules directly (no execSync) ─────────────────────────
+// Î“Ã¶Ã‡Î“Ã¶Ã‡ Import all modules directly (no execSync) Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡
 
-let _scanner, _projectScanner, _tracker, _improver, _maintainer, _validator;
+let _scanner, _projectScanner, _tracker, _improver, _maintainer, _validator, _syncer;
 
 async function ensureModules() {
   if (!_scanner) {
-    const [scannerMod, projectMod, trackerMod, improveMod, maintMod, validMod] = await Promise.all([
+    const [scannerMod, projectMod, trackerMod, improveMod, maintMod, validMod, syncMod] = await Promise.all([
       import(pathToFileURL(path.resolve(__dirname, 'global-scanner.mjs')).href),
       import(pathToFileURL(path.resolve(__dirname, 'project-scanner.mjs')).href),
       import(pathToFileURL(path.resolve(__dirname, 'usage-tracker.mjs')).href),
       import(pathToFileURL(path.resolve(__dirname, 'self-improve.mjs')).href),
       import(pathToFileURL(path.resolve(__dirname, 'maintenance.mjs')).href),
       import(pathToFileURL(path.resolve(__dirname, 'validate.mjs')).href),
+      import(pathToFileURL(path.resolve(__dirname, 'sync.mjs')).href),
     ]);
     _scanner = scannerMod;
     _projectScanner = projectMod;
@@ -45,10 +46,11 @@ async function ensureModules() {
     _improver = improveMod;
     _maintainer = maintMod;
     _validator = validMod;
+    _syncer = syncMod;
   }
 }
 
-// ── Commands ──────────────────────────────────────────────────────────
+// Î“Ã¶Ã‡Î“Ã¶Ã‡ Commands Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡
 
 async function cmdInit(args) {
   const isGlobal = args.includes('--global');
@@ -83,7 +85,7 @@ async function cmdInit(args) {
     };
 
     fs.writeFileSync(outputPath, JSON.stringify(output, null, 2) + '\n', 'utf-8');
-    console.log(`✓ global.json written to ${outputPath}`);
+    console.log(`Î“Â£Ã´ global.json written to ${outputPath}`);
     console.log(`  ${merged.length} skills found`);
   }
 
@@ -114,7 +116,7 @@ async function cmdInit(args) {
     };
 
     fs.writeFileSync(outputPath, JSON.stringify(output, null, 2) + '\n', 'utf-8');
-    console.log(`✓ project.json written to ${outputPath}`);
+    console.log(`Î“Â£Ã´ project.json written to ${outputPath}`);
     console.log(`  project: ${projectName}`);
   }
 }
@@ -127,7 +129,7 @@ async function cmdRecord(args) {
     else if (args[i] === '--log-dir' && i + 1 < args.length) options.logDir = path.resolve(args[++i]);
     else if (!options.skillId) options.skillId = args[i];
   }
-  if (!options.skillId) { console.error('✗ missing skill-id'); process.exit(1); }
+  if (!options.skillId) { console.error('Î“Â£Ã¹ missing skill-id'); process.exit(1); }
   _tracker.cmdRecord(options.skillId, options);
 }
 
@@ -175,6 +177,38 @@ async function cmdValidate(args) {
   _validator.main({ files, schemaPath });
 }
 
+async function cmdSync(args) {
+  await ensureModules();
+  const options = {};
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--sync-dir' && i + 1 < args.length) options.syncDir = path.resolve(args[++i]);
+    else if (args[i] === '--log-dir' && i + 1 < args.length) options.logDir = path.resolve(args[++i]);
+    else if (args[i] === '--global-json' && i + 1 < args.length) options.globalJson = path.resolve(args[++i]);
+    else if (args[i] === '--out' && i + 1 < args.length) options.out = path.resolve(args[++i]);
+  }
+
+  // First arg is subcommand: push | pull | sync | status
+  const subcommand = args[0];
+
+  switch (subcommand) {
+    case 'push':
+      _syncer.cmdPush(options);
+      break;
+    case 'pull':
+      _syncer.cmdPull(options);
+      break;
+    case 'sync':
+      _syncer.cmdSync(options);
+      break;
+    case 'status':
+      _syncer.cmdStatus(options);
+      break;
+    default:
+      // No subcommand Î“Ã¥Ã† combined push + pull
+      _syncer.cmdSync(options);
+  }
+}
+
 function cmdStatus(args) {
   const asJson = args.includes('--json');
   const globalPath = path.join(os.homedir(), '.meta-skills', 'global.json');
@@ -214,14 +248,14 @@ function cmdStatus(args) {
 }
 
 function showHelp() {
-  console.log(`meta-skills v${PKG.version} — Agent Skill Index`);
+  console.log(`meta-skills v${PKG.version} Î“Ã‡Ã¶ Agent Skill Index`);
   console.log('');
   console.log('Usage:');
   console.log('  meta-skills <command> [options]');
   console.log('');
   console.log('Commands:');
-  console.log('  init --global              Scan global skill directories → global.json');
-  console.log('  init --local               Scan project for context → project.json');
+  console.log('  init --global              Scan global skill directories Î“Ã¥Ã† global.json');
+  console.log('  init --local               Scan project for context Î“Ã¥Ã† project.json');
   console.log('  record <skill-id>          Record a skill activation');
   console.log('  aggregate                  Aggregate usage logs into index');
   console.log('  improve                    Self-improvement loop (promote/demote)');
@@ -229,6 +263,10 @@ function showHelp() {
   console.log('  validate <file>            Validate a meta-skills JSON file');
   console.log('  status                     Show index summary');
   console.log('  status --json              Show index summary as JSON');
+  console.log('  sync push                  Push local logs to shared sync store');
+  console.log('  sync pull                  Pull aggregated data from sync store');
+  console.log('  sync                       Push then pull (combined sync)');
+  console.log('  sync status                Show per-agent contribution summary');
   console.log('');
   console.log('Options:');
   console.log('  --help                     Show this help message');
@@ -241,38 +279,12 @@ function showHelp() {
   console.log('  --project-dir <path>       Custom project directory');
   console.log('  --schema <path>            Custom schema file (for validate)');
   console.log('  --outcome success|failure  Outcome of skill activation (for record)');
+  console.log('  --sync-dir <path>          Shared sync directory (for sync commands)');
 }
 
-function showHelp() {
-  console.log(`meta-skills v${PKG.version} — Agent Skill Index`);
-  console.log('');
-  console.log('Usage:');
-  console.log('  meta-skills <command> [options]');
-  console.log('');
-  console.log('Commands:');
-  console.log('  init --global              Scan global skill directories → global.json');
-  console.log('  init --local               Scan project for context → project.json');
-  console.log('  record <skill-id>          Record a skill activation');
-  console.log('  aggregate                  Aggregate usage logs into index');
-  console.log('  improve                    Self-improvement loop (promote/demote)');
-  console.log('  maintain                   Full maintenance run (scan + aggregate + improve)');
-  console.log('  validate <file>            Validate a meta-skills JSON file');
-  console.log('  status                     Show index summary');
-  console.log('');
-  console.log('Options:');
-  console.log('  --help                     Show this help message');
-  console.log('  --version                  Show version number');
-  console.log('  --dry-run                  Preview changes without writing');
-  console.log('  --out <path>               Custom output path');
-  console.log('  --log-dir <path>           Custom log directory');
-  console.log('  --global-json <path>       Custom global.json path');
-  console.log('  --dirs <dir1,dir2,...>     Custom skill directories to scan');
-  console.log('  --project-dir <path>       Custom project directory');
-  console.log('  --schema <path>            Custom schema file (for validate)');
-  console.log('  --outcome success|failure  Outcome of skill activation (for record)');
-}
+// Î“Ã¶Ã‡Î“Ã¶Ã‡ Main Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡
 
-// ── Main ──────────────────────────────────────────────────────────────
+// Î“Ã¶Ã‡Î“Ã¶Ã‡ Main Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡
 
 async function main() {
   const args = process.argv.slice(2);
@@ -304,13 +316,14 @@ async function main() {
       case 'maintain': await cmdMaintain(rest); break;
       case 'validate': await cmdValidate(rest); break;
       case 'status':   cmdStatus(rest); break;
+      case 'sync':  await cmdSync(rest); break;
       default:
-        console.error(`✗ unknown command: ${command}`);
+        console.error(`Î“Â£Ã¹ unknown command: ${command}`);
         console.error('  Run `meta-skills --help` for usage.');
         process.exit(1);
     }
   } catch (e) {
-    console.error(`✗ ${e.message}`);
+    console.error(`Î“Â£Ã¹ ${e.message}`);
     process.exit(1);
   }
 }
