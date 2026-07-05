@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 
 /**
- * meta-skills v1.1 Î“Ã‡Ã¶ CLI Entry Point
+ * meta-skills v1.2 — CLI Entry Point
  *
  * Unified CLI that ties all modules together via direct imports.
  *
  * Usage:
- *   meta-skills init --global          # Scan global skill dirs Î“Ã¥Ã† global.json
- *   meta-skills init --local           # Scan project Î“Ã¥Ã† project.json
+ *   meta-skills init --global          # Scan global skill dirs → global.json
+ *   meta-skills init --local           # Scan project → project.json
  *   meta-skills record <skill-id>      # Record skill activation
  *   meta-skills aggregate              # Aggregate usage logs
  *   meta-skills improve                # Self-improvement loop
@@ -15,6 +15,10 @@
  *   meta-skills validate <file>        # Validate against schema
  *   meta-skills status                 # Show index summary
  *   meta-skills status --json          # Show index summary as JSON
+ *   meta-skills sync push|pull|status  # Cross-agent sync (v1.1)
+ *   meta-skills search <query>         # Search marketplace registries (v1.2)
+ *   meta-skills install <skill-id>     # Install a marketplace skill (v1.2)
+ *   meta-skills marketplace <sub>      # Raw marketplace subcommand
  */
 
 import fs from 'node:fs';
@@ -27,11 +31,11 @@ const PKG = JSON.parse(fs.readFileSync(path.resolve(__dirname, '..', 'package.js
 
 // Î“Ã¶Ã‡Î“Ã¶Ã‡ Import all modules directly (no execSync) Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡
 
-let _scanner, _projectScanner, _tracker, _improver, _maintainer, _validator, _syncer;
+let _scanner, _projectScanner, _tracker, _improver, _maintainer, _validator, _syncer, _marketplace;
 
 async function ensureModules() {
   if (!_scanner) {
-    const [scannerMod, projectMod, trackerMod, improveMod, maintMod, validMod, syncMod] = await Promise.all([
+    const [scannerMod, projectMod, trackerMod, improveMod, maintMod, validMod, syncMod, mpMod] = await Promise.all([
       import(pathToFileURL(path.resolve(__dirname, 'global-scanner.mjs')).href),
       import(pathToFileURL(path.resolve(__dirname, 'project-scanner.mjs')).href),
       import(pathToFileURL(path.resolve(__dirname, 'usage-tracker.mjs')).href),
@@ -39,6 +43,7 @@ async function ensureModules() {
       import(pathToFileURL(path.resolve(__dirname, 'maintenance.mjs')).href),
       import(pathToFileURL(path.resolve(__dirname, 'validate.mjs')).href),
       import(pathToFileURL(path.resolve(__dirname, 'sync.mjs')).href),
+      import(pathToFileURL(path.resolve(__dirname, 'marketplace.mjs')).href),
     ]);
     _scanner = scannerMod;
     _projectScanner = projectMod;
@@ -47,6 +52,7 @@ async function ensureModules() {
     _maintainer = maintMod;
     _validator = validMod;
     _syncer = syncMod;
+    _marketplace = mpMod;
   }
 }
 
@@ -247,15 +253,44 @@ function cmdStatus(args) {
   }
 }
 
+async function cmdSearch(args) {
+  await ensureModules();
+  // Forward to the marketplace module's cmdSearch. Strip any leading
+  // 'search' so the marketplace module sees the query as args[0].
+  await _marketplace.cmdSearch(args);
+}
+
+async function cmdInstall(args) {
+  await ensureModules();
+  await _marketplace.cmdInstall(args);
+}
+
+async function cmdMarketplace(args) {
+  await ensureModules();
+  // Top-level marketplace passthrough. Subcommand is args[0].
+  const sub = args[0];
+  const rest = args.slice(1);
+  switch (sub) {
+    case 'search':  await _marketplace.cmdSearch(rest); break;
+    case 'install': await _marketplace.cmdInstall(rest); break;
+    case 'list':    await _marketplace.cmdList(rest); break;
+    case 'refresh': await _marketplace.cmdRefresh(rest); break;
+    default:
+      console.error(`unknown marketplace subcommand: ${sub || '(none)'}`);
+      console.error('  usage: meta-skills marketplace <search|install|list|refresh>');
+      process.exit(1);
+  }
+}
+
 function showHelp() {
-  console.log(`meta-skills v${PKG.version} Î“Ã‡Ã¶ Agent Skill Index`);
+  console.log(`meta-skills v${PKG.version} — Agent Skill Index`);
   console.log('');
   console.log('Usage:');
   console.log('  meta-skills <command> [options]');
   console.log('');
   console.log('Commands:');
-  console.log('  init --global              Scan global skill directories Î“Ã¥Ã† global.json');
-  console.log('  init --local               Scan project for context Î“Ã¥Ã† project.json');
+  console.log('  init --global              Scan global skill directories → global.json');
+  console.log('  init --local               Scan project for context → project.json');
   console.log('  record <skill-id>          Record a skill activation');
   console.log('  aggregate                  Aggregate usage logs into index');
   console.log('  improve                    Self-improvement loop (promote/demote)');
@@ -267,6 +302,9 @@ function showHelp() {
   console.log('  sync pull                  Pull aggregated data from sync store');
   console.log('  sync                       Push then pull (combined sync)');
   console.log('  sync status                Show per-agent contribution summary');
+  console.log('  search <query>             Search marketplace registries (awesome-agent-skills, agentskills.io)');
+  console.log('  install <skill-id>         Install a marketplace skill (writes SKILL.md, registers in global.json)');
+  console.log('  marketplace <sub>          Raw marketplace passthrough (search|install|list|refresh)');
   console.log('');
   console.log('Options:');
   console.log('  --help                     Show this help message');
@@ -280,6 +318,12 @@ function showHelp() {
   console.log('  --schema <path>            Custom schema file (for validate)');
   console.log('  --outcome success|failure  Outcome of skill activation (for record)');
   console.log('  --sync-dir <path>          Shared sync directory (for sync commands)');
+  console.log('  --source <name>            Restrict to a marketplace source (search/list)');
+  console.log('  --limit <n>                Max results for search/list (default 20/100)');
+  console.log('  --refresh                  Force re-fetch of marketplace caches');
+  console.log('  --target <dir>             Install directory (for install; default ~/.meta-skills/installed)');
+  console.log('  --no-register              Install without touching global.json');
+  console.log('  --cache-dir <path>         Marketplace cache directory (default ~/.meta-skills/marketplace)');
 }
 
 // Î“Ã¶Ã‡Î“Ã¶Ã‡ Main Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡
@@ -316,9 +360,12 @@ async function main() {
       case 'maintain': await cmdMaintain(rest); break;
       case 'validate': await cmdValidate(rest); break;
       case 'status':   cmdStatus(rest); break;
-      case 'sync':  await cmdSync(rest); break;
+      case 'sync':     await cmdSync(rest); break;
+      case 'search':   await cmdSearch(rest); break;
+      case 'install':  await cmdInstall(rest); break;
+      case 'marketplace': await cmdMarketplace(rest); break;
       default:
-        console.error(`Î“Â£Ã¹ unknown command: ${command}`);
+        console.error(`✗ unknown command: ${command}`);
         console.error('  Run `meta-skills --help` for usage.');
         process.exit(1);
     }

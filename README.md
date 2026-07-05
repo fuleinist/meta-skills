@@ -171,6 +171,14 @@ meta-skills sync push             # Upload local logs to shared sync store
 meta-skills sync pull             # Aggregate all agents' events into global.json
 meta-skills sync                  # Combined push + pull
 meta-skills sync status           # Show per-agent contribution summary
+
+# Skill marketplace (v1.2+)
+meta-skills search "react testing"  # Search awesome-agent-skills + agentskills.io
+meta-skills search "stripe" --json  # Machine-readable results
+meta-skills install docx            # Fetch SKILL.md from source repo
+meta-skills install pdf --target ~/my-skills  # Custom install dir
+meta-skills marketplace list        # List all known marketplace skills
+meta-skills marketplace refresh     # Force re-fetch of marketplace caches
 ```
 
 ### Background Maintenance
@@ -237,7 +245,7 @@ Before working, scan meta-skills files for available skills.
 
 - [x] **v1.1 â€” Cross-agent sync** â€” Share usage patterns and skill metadata across Claude Code, Cursor, OpenClaw, and Gemini CLI agents via a shared `.meta-skills/sync/` directory. Each agent writes its own events to `~/.meta-skills/sync/<agent>/events.jsonl`. `meta-skills sync push` uploads local logs to the shared store; `meta-skills sync pull` aggregates all agents' events into `global.json`, recording `last_agents` (which agents have used each skill) and `last_synced_agent` (the most recent agent). Agent identity is auto-detected from `META_SKILLS_AGENT` env var, then from agent-specific env vars (`CLAUDE_API_KEY`, `CURSOR_API_KEY`, `OPENCLAW_CONFIG_DIR`, `GEMINI_API_KEY`, etc.), then from process argv. *Inspired by: EvoSkill's transferable skill concept, multi-agent coordination patterns.*
 
-- [ ] **v1.2 â€” Skill marketplace integration** â€” Query [awesome-agent-skills](https://github.com/VoltAgent/awesome-agent-skills) (1497+ skills) and [agentskills.io](https://agentskills.io) registries directly. `meta-skills search "react testing"` â†’ discover + install skills from community repos. *Inspired by: VoltAgent's 1000+ curated skills, agentskills.io registry.*
+- [x] **v1.2 â€” Skill marketplace integration** â€” Query [awesome-agent-skills](https://github.com/VoltAgent/awesome-agent-skills) (1497+ skills) and [agentskills.io](https://agentskills.io) registries directly. `meta-skills search "react testing"` filters 1000+ marketplace skills by tokenized query against name, description, owner, and section. Supports `--source` (filter by registry), `--limit`, `--refresh` (force re-fetch), `--json` (machine-readable). Results are cached for 7 days in `~/.meta-skills/marketplace/` and deduped across sources (preferring awesome-agent-skills). `meta-skills install <skill-id>` fetches the SKILL.md from the source repo and writes it to `--target` dir (default `~/.meta-skills/installed/<id>/SKILL.md`), optionally registering it in `global.json` with `source: "marketplace"`. `meta-skills marketplace list|refresh` for raw access. *Inspired by: VoltAgent's 1000+ curated skills, agentskills.io registry.*
 
 - [ ] **v1.3 â€” Failure-based auto-improvement** â€” When a skill activation records `outcome: failure`, the system automatically proposes a diff to the skill's SKILL.md. Human reviews via PR. Modeled on EvoSkill's Pareto-optimized failure-analysis loop. *Inspired by: EvoSkill (7.3% accuracy gain via failure analysis), BerriAI/self-improving-agent.*
 
