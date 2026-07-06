@@ -31,11 +31,11 @@ const PKG = JSON.parse(fs.readFileSync(path.resolve(__dirname, '..', 'package.js
 
 // Î“Ã¶Ã‡Î“Ã¶Ã‡ Import all modules directly (no execSync) Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡
 
-let _scanner, _projectScanner, _tracker, _improver, _maintainer, _validator, _syncer, _marketplace;
+let _scanner, _projectScanner, _tracker, _improver, _maintainer, _validator, _syncer, _marketplace, _failureAnalyzer;
 
 async function ensureModules() {
   if (!_scanner) {
-    const [scannerMod, projectMod, trackerMod, improveMod, maintMod, validMod, syncMod, mpMod] = await Promise.all([
+    const [scannerMod, projectMod, trackerMod, improveMod, maintMod, validMod, syncMod, mpMod, faMod] = await Promise.all([
       import(pathToFileURL(path.resolve(__dirname, 'global-scanner.mjs')).href),
       import(pathToFileURL(path.resolve(__dirname, 'project-scanner.mjs')).href),
       import(pathToFileURL(path.resolve(__dirname, 'usage-tracker.mjs')).href),
@@ -44,6 +44,7 @@ async function ensureModules() {
       import(pathToFileURL(path.resolve(__dirname, 'validate.mjs')).href),
       import(pathToFileURL(path.resolve(__dirname, 'sync.mjs')).href),
       import(pathToFileURL(path.resolve(__dirname, 'marketplace.mjs')).href),
+      import(pathToFileURL(path.resolve(__dirname, 'failure-analyzer.mjs')).href),
     ]);
     _scanner = scannerMod;
     _projectScanner = projectMod;
@@ -53,6 +54,7 @@ async function ensureModules() {
     _validator = validMod;
     _syncer = syncMod;
     _marketplace = mpMod;
+    _failureAnalyzer = faMod;
   }
 }
 
@@ -168,8 +170,13 @@ async function cmdMaintain(args) {
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--project-dir' && i + 1 < args.length) options.projectDir = path.resolve(args[++i]);
     else if (args[i] === '--dry-run') options.dryRun = true;
+    else if (args[i] === '--from-failures') options.fromFailures = true;
   }
   _maintainer.main(options);
+  if (options.fromFailures) {
+    console.log('');
+    _failureAnalyzer.analyzeFailures({ sinceDays: 7, dryRun: options.dryRun });
+  }
 }
 
 async function cmdValidate(args) {
@@ -265,6 +272,11 @@ async function cmdInstall(args) {
   await _marketplace.cmdInstall(args);
 }
 
+async function cmdPropose(args) {
+  await ensureModules();
+  await _failureAnalyzer.cmdPropose(args);
+}
+
 async function cmdMarketplace(args) {
   await ensureModules();
   // Top-level marketplace passthrough. Subcommand is args[0].
@@ -295,7 +307,13 @@ function showHelp() {
   console.log('  aggregate                  Aggregate usage logs into index');
   console.log('  improve                    Self-improvement loop (promote/demote)');
   console.log('  maintain                   Full maintenance run (scan + aggregate + improve)');
+  console.log('  maintain --from-failures   Include failure analysis in maintenance run');
   console.log('  validate <file>            Validate a meta-skills JSON file');
+  console.log('  propose [--since <days>]   Analyze failures and generate improvement proposals (v1.3)');
+  console.log('  propose list               List pending proposals');
+  console.log('  propose apply <id>         View a proposal');
+  console.log('  propose reject <id>        Delete a proposal');
+  console.log('  propose auto-pr <id>       File a PR via gh CLI with the proposed patch');
   console.log('  status                     Show index summary');
   console.log('  status --json              Show index summary as JSON');
   console.log('  sync push                  Push local logs to shared sync store');
@@ -363,6 +381,7 @@ async function main() {
       case 'sync':     await cmdSync(rest); break;
       case 'search':   await cmdSearch(rest); break;
       case 'install':  await cmdInstall(rest); break;
+      case 'propose':   await cmdPropose(rest); break;
       case 'marketplace': await cmdMarketplace(rest); break;
       default:
         console.error(`✗ unknown command: ${command}`);
