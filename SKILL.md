@@ -1,9 +1,9 @@
 ---
 name: meta-skills
-description: A lightweight, self-improving JSON index that lets agents discover all available skills in ~150 tokens. Scans global agent configs (Claude Code, Cursor, OpenClaw, Hermes) and project files to generate a fast-reference skill catalog with usage tracking, auto-promotion, and background maintenance.
+description: A lightweight, self-improving JSON index that lets agents discover all available skills in ~150 tokens. Scans global agent configs (Claude Code, Cursor, OpenClaw, Hermes) and project files to generate a fast-reference skill catalog with usage tracking, auto-promotion, background maintenance, and failure-based patch proposals.
 metadata:
   author: community
-  version: "1.0.0"
+  version: "1.3.0"
   schema: https://meta-skills.dev/schema/v1.json
 ---
 
@@ -163,6 +163,50 @@ Load the full SKILL.md only when you decide to activate it.
 - **Skill recommendations** — "You often use `git-commits` with `code-review` — would you like to bundle them?"
 - **Meta-skills dashboard** — web UI showing skill usage, stale skills, discovery stats
 - **Plugin for IDEs** — show available skills in-editor without leaving the codebase
+
+## Phase 6: Failure-Based Auto-Improvement (v1.3)
+
+**The problem:** Skills fail silently. A skill activated in the wrong context produces an `outcome: failure` log entry, but nothing closes the loop. Agents repeat the same mistakes across sessions.
+
+**The fix:** When failures accumulate, generate a proposed patch to the skill's `SKILL.md` and surface it for human review. Inspired by EvoSkill's Pareto-optimized failure-analysis loop (7.3% accuracy gain) and BerriAI/self-improving-agent.
+
+### Failure Analysis Pipeline
+
+1. **Scan logs** — `~/.meta-skills/logs/*.jsonl`, filter `outcome=failure`, group by `skill_id`
+2. **Pattern detection** — classify failures:
+   - **Vague trigger** → tighten `when:` field (e.g., "Use when task involves X" instead of "general")
+   - **Short content** → add `## Anti-Patterns` section with common mistake patterns
+   - **Heterogeneous failures (≥5)** → suggest splitting into sub-skills (`{name}-core`, `{name}-advanced`)
+   - **Generic** → append `## Improvement Notes` with review checklist
+3. **Proposal file** — write `~/.meta-skills/proposals/<skill-id>-<timestamp>.patch` containing:
+   - `meta`: skill id, generation timestamp, patch type, summary, version
+   - `diff`: unified diff against the current `SKILL.md`
+
+### CLI
+
+```bash
+# Run analysis on last 7 days of failures
+meta-skills propose [--since 7] [--dry-run]
+
+# List, view, reject, or auto-PR proposals
+meta-skills propose list
+meta-skills propose apply <id>       # show diff + suggested action
+meta-skills propose reject <id>      # delete proposal
+meta-skills propose auto-pr <id>     # file a PR via gh CLI
+
+# Roll into the existing cron maintenance run
+meta-skills maintain --from-failures [--dry-run]
+```
+
+### Human-in-the-Loop Design
+
+Auto-PR opens the proposal as a PR for review — agents do not auto-merge. This preserves the core meta-skills principle: **agents propose, humans decide**.
+
+### Use Cases
+
+- **Skill authoring**: a skill gets 3+ failures in a week → tighten its trigger before next deploy
+- **Cross-session learning**: persistent log of which skills fail when
+- **Cumulative improvement**: each successful proposal raises aggregate skill quality
 
 ## References
 

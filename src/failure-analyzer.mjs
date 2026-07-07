@@ -224,9 +224,9 @@ function generateWhenTightenPatch(skillId, content, entry, reasons) {
     if (fmEnd < 0) return { patch: null, type: 'no-frontmatter', summary: 'No frontmatter found' };
 
     const insertAt = fmEnd + 4; // after ---\n
-    const newWhen = `when: ${reasons.reasons[0] || 'Use only when the specific task matches this skill\'s domain'}`;
+    const newWhen = `when: ${reasons.reasons[0] || 'Use only when the specific task matches this skill\'s domain'}\n`;
     const patch = createUnifiedDiff(skillId, content,
-      content.slice(0, insertAt) + `when: ${newWhen}\n` + content.slice(insertAt)
+      content.slice(0, insertAt) + newWhen + content.slice(insertAt)
     );
     return {
       patch,
@@ -452,7 +452,7 @@ function autoPr(proposal, proposalsDir) {
   const skillFile = path.join(tempDir, 'SKILL.md');
 
   try {
-    // Write the patched SKILL.md
+    // Write the patched SKILL.md (extracts + lines — best-effort patch application)
     fs.writeFileSync(skillFile, applyPatchToContent(diff), 'utf-8');
 
     // Use gh CLI to create PR
@@ -485,8 +485,12 @@ function autoPr(proposal, proposalsDir) {
       '*This PR was auto-generated. Human review required before merge.*',
     ].join('\n');
 
+    // Note: --base is the target branch (typically master or main); --head is the new branch we push.
+    // The branch must already exist locally and be pushed to origin before this command runs.
+    // This is a best-effort implementation; for production use, run from inside the target repo clone
+    // and ensure the working tree is on the new branch with the patched SKILL.md committed.
     const result = execSync(
-      `gh pr create --repo "${repo}" --base main --head "${branchName}" --title "fix(${meta.skill}): ${meta.summary}" --body "${prBody}"`,
+      `gh pr create --repo "${repo}" --base master --head "${branchName}" --title "fix(${meta.skill}): ${meta.summary}" --body "${prBody}"`,
       { encoding: 'utf-8', stdio: 'pipe', timeout: 30000 }
     );
 
