@@ -19,6 +19,7 @@
  *   meta-skills search <query>         # Search marketplace registries (v1.2)
  *   meta-skills install <skill-id>     # Install a marketplace skill (v1.2)
  *   meta-skills marketplace <sub>      # Raw marketplace subcommand
+ *   meta-skills dashboard [--port 7777] # Local web dashboard (v1.4)
  */
 
 import fs from 'node:fs';
@@ -31,11 +32,11 @@ const PKG = JSON.parse(fs.readFileSync(path.resolve(__dirname, '..', 'package.js
 
 // Î“Ã¶Ã‡Î“Ã¶Ã‡ Import all modules directly (no execSync) Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡
 
-let _scanner, _projectScanner, _tracker, _improver, _maintainer, _validator, _syncer, _marketplace, _failureAnalyzer;
+let _scanner, _projectScanner, _tracker, _improver, _maintainer, _validator, _syncer, _marketplace, _failureAnalyzer, _dashboard;
 
 async function ensureModules() {
   if (!_scanner) {
-    const [scannerMod, projectMod, trackerMod, improveMod, maintMod, validMod, syncMod, mpMod, faMod] = await Promise.all([
+    const [scannerMod, projectMod, trackerMod, improveMod, maintMod, validMod, syncMod, mpMod, faMod, dashMod] = await Promise.all([
       import(pathToFileURL(path.resolve(__dirname, 'global-scanner.mjs')).href),
       import(pathToFileURL(path.resolve(__dirname, 'project-scanner.mjs')).href),
       import(pathToFileURL(path.resolve(__dirname, 'usage-tracker.mjs')).href),
@@ -45,6 +46,7 @@ async function ensureModules() {
       import(pathToFileURL(path.resolve(__dirname, 'sync.mjs')).href),
       import(pathToFileURL(path.resolve(__dirname, 'marketplace.mjs')).href),
       import(pathToFileURL(path.resolve(__dirname, 'failure-analyzer.mjs')).href),
+      import(pathToFileURL(path.resolve(__dirname, 'dashboard.mjs')).href),
     ]);
     _scanner = scannerMod;
     _projectScanner = projectMod;
@@ -55,6 +57,7 @@ async function ensureModules() {
     _syncer = syncMod;
     _marketplace = mpMod;
     _failureAnalyzer = faMod;
+    _dashboard = dashMod;
   }
 }
 
@@ -294,6 +297,11 @@ async function cmdMarketplace(args) {
   }
 }
 
+async function cmdDashboard(args) {
+  await ensureModules();
+  await _dashboard.cmdDashboard(args);
+}
+
 function showHelp() {
   console.log(`meta-skills v${PKG.version} — Agent Skill Index`);
   console.log('');
@@ -323,6 +331,7 @@ function showHelp() {
   console.log('  search <query>             Search marketplace registries (awesome-agent-skills, agentskills.io)');
   console.log('  install <skill-id>         Install a marketplace skill (writes SKILL.md, registers in global.json)');
   console.log('  marketplace <sub>          Raw marketplace passthrough (search|install|list|refresh)');
+  console.log('  dashboard [--port 7777]    Local web dashboard (v1.4) — open http://127.0.0.1:7777');
   console.log('');
   console.log('Options:');
   console.log('  --help                     Show this help message');
@@ -342,6 +351,7 @@ function showHelp() {
   console.log('  --target <dir>             Install directory (for install; default ~/.meta-skills/installed)');
   console.log('  --no-register              Install without touching global.json');
   console.log('  --cache-dir <path>         Marketplace cache directory (default ~/.meta-skills/marketplace)');
+  console.log('  --port <n>                 Dashboard server port (default 7777; v1.4)');
 }
 
 // Î“Ã¶Ã‡Î“Ã¶Ã‡ Main Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡
@@ -383,6 +393,7 @@ async function main() {
       case 'install':  await cmdInstall(rest); break;
       case 'propose':   await cmdPropose(rest); break;
       case 'marketplace': await cmdMarketplace(rest); break;
+      case 'dashboard':   await cmdDashboard(rest); break;
       default:
         console.error(`✗ unknown command: ${command}`);
         console.error('  Run `meta-skills --help` for usage.');
