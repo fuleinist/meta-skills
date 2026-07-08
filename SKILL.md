@@ -1,9 +1,9 @@
 ---
 name: meta-skills
-description: A lightweight, self-improving JSON index that lets agents discover all available skills in ~150 tokens. Scans global agent configs (Claude Code, Cursor, OpenClaw, Hermes) and project files to generate a fast-reference skill catalog with usage tracking, auto-promotion, background maintenance, and failure-based patch proposals.
+description: A lightweight, self-improving JSON index that lets agents discover all available skills in ~150 tokens. Scans global agent configs (Claude Code, Cursor, OpenClaw, Hermes) and project files to generate a fast-reference skill catalog with usage tracking, auto-promotion, background maintenance, failure-based patch proposals, and a local web dashboard.
 metadata:
   author: community
-  version: "1.3.0"
+  version: "1.4.0"
   schema: https://meta-skills.dev/schema/v1.json
 ---
 
@@ -207,6 +207,61 @@ Auto-PR opens the proposal as a PR for review — agents do not auto-merge. This
 - **Skill authoring**: a skill gets 3+ failures in a week → tighten its trigger before next deploy
 - **Cross-session learning**: persistent log of which skills fail when
 - **Cumulative improvement**: each successful proposal raises aggregate skill quality
+
+## Phase 7: Local Web Dashboard (v1.4)
+
+**The problem:** The meta-skills index is a JSON file optimized for ~150-token agent reads, but humans have no way to *see* the index. There is no visualization of which skills are hot, which are stale, or which cluster together.
+
+**The fix:** A read-only local web dashboard that boots a Node http server bound to `127.0.0.1` (loopback only) and serves a single-page HTML+CSS+vanilla-JS app with five panels:
+
+1. **Summary** — total skills, stale count, total activations, suggested bundles
+2. **Usage Heatmap** — skills x days matrix for the last N days (default 7), color-coded by activation count
+3. **Stale Skills** — skills not used in 30+ days (configurable via `?days=`)
+4. **Priority Distribution** — counts of high/medium/low/unset priorities with a proportional bar
+5. **Co-occurrence** — skill pairs that activated within a 5-minute window (configurable via `?window=`) over the last 30 days
+6. **Suggested Bundles** — list view of `suggested_bundles` from `global.json`
+
+### Design constraints
+
+- **Zero new dependencies** — uses only Node.js stdlib (`node:http`, `node:fs`, `node:path`, `node:os`)
+- **Read-only** — the dashboard never writes to `global.json`, only reads
+- **Local-only binding** — refuses to bind to non-loopback addresses (security: dashboard data is private)
+- **Auto-shutdown on SIGINT/SIGTERM** — `ctrl-c` cleanly closes the server
+- **Auto-refresh every 30s** — clients poll `/api/*` JSON endpoints
+
+### CLI
+
+```bash
+# Start dashboard on default port 7777
+meta-skills dashboard
+
+# Custom port
+meta-skills dashboard --port 8888
+
+# Custom global.json / log-dir (matches the other commands)
+meta-skills dashboard --global-json /path/to/global.json --log-dir /path/to/logs
+```
+
+### JSON API
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /` | HTML page |
+| `GET /api/health` | `{ ok, version, generated }` |
+| `GET /api/index` | full meta-skills index |
+| `GET /api/logs?since=7` | log events from last N days |
+| `GET /api/stale?days=30` | skills unused for N+ days |
+| `GET /api/priority` | priority distribution counts |
+| `GET /api/cooccurrence?since=30&window=5` | skill pairs within N-min window |
+| `GET /api/heatmap?days=7` | skills x days matrix |
+| `GET /api/bundles` | suggested bundles |
+
+### Use Cases
+
+- **Skill curation** — see which skills are dead weight and candidates for archival
+- **Pattern discovery** — co-occurrence reveals which skills work well together (bundling candidates)
+- **Activity monitoring** — heatmap shows daily engagement without leaving the terminal
+- **Onboarding** — new users can `meta-skills dashboard` and see their full skill landscape in 30 seconds
 
 ## References
 
