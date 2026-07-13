@@ -1,6 +1,6 @@
 {
   "name": "meta-skills",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "A lightweight, self-improving JSON index that lets agents discover all available skills in ~150 tokens",
   "type": "module",
   "main": "src/cli.mjs",
@@ -17,7 +17,7 @@
     "sync:push": "node src/cli.mjs sync push",
     "sync:pull": "node src/cli.mjs sync pull",
     "dashboard": "node src/cli.mjs dashboard",
-    "init:agent-config": "node src/cli.mjs init-agent-config"
+    "agent-config": "node src/cli.mjs agent-config"
   },
   "keywords": [
     "meta-skills",

@@ -23,6 +23,9 @@ import {
   defaultConfigSpecs,
   detectConfigs,
   parseForBlock,
+  writeBlock,
+  removeBlock,
+  injectAll,
 } from './agent-config.mjs';
 
 const tests = [];
@@ -277,6 +280,193 @@ test('parseForBlock — missing file returns exists=false', () => {
     assert.equal(r.hasBlock, false);
     assert.equal(r.error, null);
     assert.equal(r.content, '');
+  } finally { cleanup(dir); }
+});
+
+// ---- Write-back tests ------------------------------------------------------
+
+test('writeBlock — creates file when none exists', () => {
+  const dir = makeTempDir();
+  try {
+    const p = path.join(dir, 'CLAUDE.md');
+    const spec = { type: 'markdown', path: p, start: MARKDOWN_BLOCK_START, end: MARKDOWN_BLOCK_END };
+    const r = writeBlock(spec);
+    assert.equal(r.action, 'created');
+    assert.ok(fs.existsSync(p));
+    const content = fs.readFileSync(p, 'utf-8');
+    assert.ok(content.includes(MARKDOWN_BLOCK_START));
+    assert.ok(content.includes(MARKDOWN_BLOCK_END));
+    assert.ok(content.includes(blockContent()));
+  } finally { cleanup(dir); }
+});
+
+test('writeBlock — dryRun does not write', () => {
+  const dir = makeTempDir();
+  try {
+    const p = path.join(dir, 'CLAUDE.md');
+    const spec = { type: 'markdown', path: p, start: MARKDOWN_BLOCK_START, end: MARKDOWN_BLOCK_END };
+    const r = writeBlock(spec, { dryRun: true });
+    assert.equal(r.action, 'created');
+    assert.equal(r.dryRun, true);
+    assert.ok(!fs.existsSync(p));
+  } finally { cleanup(dir); }
+});
+
+test('writeBlock — updates existing block in-place', () => {
+  const dir = makeTempDir();
+  try {
+    const p = path.join(dir, 'CLAUDE.md');
+    // Write initial content with block
+    const original = '# Project\n\nUser content.\n\n' +
+      `${MARKDOWN_BLOCK_START}\nold block content\n${MARKDOWN_BLOCK_END}\n` +
+      '\nMore user content.\n';
+    writeFile(p, original);
+    const spec = { type: 'markdown', path: p, start: MARKDOWN_BLOCK_START, end: MARKDOWN_BLOCK_END };
+    const r = writeBlock(spec);
+    assert.equal(r.action, 'updated');
+    const content = fs.readFileSync(p, 'utf-8');
+    // Old content should be replaced
+    assert.ok(!content.includes('old block content'));
+    assert.ok(content.includes(blockContent()));
+    // Surrounding content preserved
+    assert.ok(content.includes('User content'));
+    assert.ok(content.includes('More user content'));
+  } finally { cleanup(dir); }
+});
+
+test('writeBlock — appends block when file exists without one', () => {
+  const dir = makeTempDir();
+  try {
+    const p = path.join(dir, 'CLAUDE.md');
+    writeFile(p, '# Project\n\nUser content.\n');
+    const spec = { type: 'markdown', path: p, start: MARKDOWN_BLOCK_START, end: MARKDOWN_BLOCK_END };
+    const r = writeBlock(spec);
+    assert.equal(r.action, 'updated');
+    const content = fs.readFileSync(p, 'utf-8');
+    assert.ok(content.includes(MARKDOWN_BLOCK_START));
+    assert.ok(content.includes(blockContent()));
+    assert.ok(content.startsWith('# Project'));
+  } finally { cleanup(dir); }
+});
+
+test('writeBlock — text type creates correctly', () => {
+  const dir = makeTempDir();
+  try {
+    const p = path.join(dir, '.cursorrules');
+    const spec = { type: 'text', path: p, start: TEXT_BLOCK_START, end: TEXT_BLOCK_END };
+    const r = writeBlock(spec);
+    assert.equal(r.action, 'created');
+    const content = fs.readFileSync(p, 'utf-8');
+    assert.ok(content.includes(TEXT_BLOCK_START));
+    assert.ok(content.includes(TEXT_BLOCK_END));
+  } finally { cleanup(dir); }
+});
+
+test('writeBlock — skips on parse error without force', () => {
+  const dir = makeTempDir();
+  try {
+    const p = path.join(dir, 'CLAUDE.md');
+    // Malformed: start without end
+    writeFile(p, `${MARKDOWN_BLOCK_START}\ncontent\n`);
+    const spec = { type: 'markdown', path: p, start: MARKDOWN_BLOCK_START, end: MARKDOWN_BLOCK_END };
+    const r = writeBlock(spec);
+    assert.equal(r.action, 'skipped');
+    assert.ok(r.error && r.error.includes('unterminated'));
+  } finally { cleanup(dir); }
+});
+
+test('writeBlock — force overrides parse error', () => {
+  const dir = makeTempDir();
+  try {
+    const p = path.join(dir, 'CLAUDE.md');
+    writeFile(p, `${MARKDOWN_BLOCK_START}\ncontent\n`);
+    const spec = { type: 'markdown', path: p, start: MARKDOWN_BLOCK_START, end: MARKDOWN_BLOCK_END };
+    const r = writeBlock(spec, { force: true });
+    assert.equal(r.action, 'updated');
+    const content = fs.readFileSync(p, 'utf-8');
+    assert.ok(content.includes(MARKDOWN_BLOCK_END));
+  } finally { cleanup(dir); }
+});
+
+test('removeBlock — removes existing block', () => {
+  const dir = makeTempDir();
+  try {
+    const p = path.join(dir, 'CLAUDE.md');
+    const original = '# Project\n\n' +
+      `${MARKDOWN_BLOCK_START}\ncontent\n${MARKDOWN_BLOCK_END}\n` +
+      '\nMore content.\n';
+    writeFile(p, original);
+    const spec = { type: 'markdown', path: p, start: MARKDOWN_BLOCK_START, end: MARKDOWN_BLOCK_END };
+    const r = removeBlock(spec);
+    assert.equal(r.action, 'removed');
+    const content = fs.readFileSync(p, 'utf-8');
+    assert.ok(!content.includes(MARKDOWN_BLOCK_START));
+    assert.ok(content.includes('Project'));
+    assert.ok(content.includes('More content'));
+  } finally { cleanup(dir); }
+});
+
+test('removeBlock — skips when no block exists', () => {
+  const dir = makeTempDir();
+  try {
+    const p = path.join(dir, 'CLAUDE.md');
+    writeFile(p, '# Project\n');
+    const spec = { type: 'markdown', path: p, start: MARKDOWN_BLOCK_START, end: MARKDOWN_BLOCK_END };
+    const r = removeBlock(spec);
+    assert.equal(r.action, 'skipped');
+  } finally { cleanup(dir); }
+});
+
+test('removeBlock — dryRun does not modify file', () => {
+  const dir = makeTempDir();
+  try {
+    const p = path.join(dir, 'CLAUDE.md');
+    const original = `${MARKDOWN_BLOCK_START}\ncontent\n${MARKDOWN_BLOCK_END}\n`;
+    writeFile(p, original);
+    const spec = { type: 'markdown', path: p, start: MARKDOWN_BLOCK_START, end: MARKDOWN_BLOCK_END };
+    const r = removeBlock(spec, { dryRun: true });
+    assert.equal(r.action, 'removed');
+    assert.equal(r.dryRun, true);
+    const content = fs.readFileSync(p, 'utf-8');
+    assert.ok(content.includes(MARKDOWN_BLOCK_START));
+  } finally { cleanup(dir); }
+});
+
+test('injectAll — runs detect + write on existing configs', () => {
+  const dir = makeTempDir();
+  try {
+    writeFile(path.join(dir, 'CLAUDE.md'), '# Project\n');
+    writeFile(path.join(dir, '.cursorrules'), 'be concise\n');
+    const results = injectAll(dir);
+    assert.equal(results.length, 2);
+    for (const r of results) {
+      assert.ok(r.action === 'created' || r.action === 'updated');
+    }
+    // Verify both files got the block
+    const claude = fs.readFileSync(path.join(dir, 'CLAUDE.md'), 'utf-8');
+    assert.ok(claude.includes(MARKDOWN_BLOCK_START));
+    const cursor = fs.readFileSync(path.join(dir, '.cursorrules'), 'utf-8');
+    assert.ok(cursor.includes(TEXT_BLOCK_START));
+  } finally { cleanup(dir); }
+});
+
+test('injectAll — returns empty array when no configs exist', () => {
+  const dir = makeTempDir();
+  try {
+    const results = injectAll(dir);
+    assert.equal(results.length, 0);
+  } finally { cleanup(dir); }
+});
+
+test('injectAll — dryRun does not write', () => {
+  const dir = makeTempDir();
+  try {
+    writeFile(path.join(dir, 'CLAUDE.md'), '# Project\n');
+    const results = injectAll(dir, { dryRun: true });
+    assert.equal(results.length, 1);
+    assert.equal(results[0].dryRun, true);
+    const content = fs.readFileSync(path.join(dir, 'CLAUDE.md'), 'utf-8');
+    assert.ok(!content.includes(MARKDOWN_BLOCK_START));
   } finally { cleanup(dir); }
 });
 
