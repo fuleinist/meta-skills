@@ -1,9 +1,9 @@
 ---
 name: meta-skills
-description: A lightweight, self-improving JSON index that lets agents discover all available skills in ~150 tokens. Scans global agent configs (Claude Code, Cursor, OpenClaw, Hermes) and project files to generate a fast-reference skill catalog with usage tracking, auto-promotion, background maintenance, failure-based patch proposals, and a local web dashboard.
+description: A lightweight, self-improving JSON index that lets agents discover all available skills in ~150 tokens. Scans global agent configs (Claude Code, Cursor, OpenClaw, Hermes) and project files to generate a fast-reference skill catalog with usage tracking, auto-promotion, background maintenance, failure-based patch proposals, a local web dashboard, and agent config injection.
 metadata:
   author: community
-  version: "1.4.0"
+  version: "1.5.0"
   schema: https://meta-skills.dev/schema/v1.json
 ---
 
@@ -262,6 +262,56 @@ meta-skills dashboard --global-json /path/to/global.json --log-dir /path/to/logs
 - **Pattern discovery** — co-occurrence reveals which skills work well together (bundling candidates)
 - **Activity monitoring** — heatmap shows daily engagement without leaving the terminal
 - **Onboarding** — new users can `meta-skills dashboard` and see their full skill landscape in 30 seconds
+
+## Phase 8: Agent Config Injection (v1.5)
+
+Detect and inject meta-skills scan instructions into agent configuration files:
+`CLAUDE.md`, `.cursorrules`, `AGENTS.md`, and Gemini CLI config (`config.yaml` / `config.json`).
+
+### Detection
+
+- Scans the target directory (default: `process.cwd()`) for 5 canonical config file specs
+- Project-level: `CLAUDE.md`, `.cursorrules`, `AGENTS.md`
+- Global-only: `~/.config/gemini-cli/config.yaml`, `~/.config/gemini-cli/config.json`
+- Parses each file for existing `<!-- meta-skills:start --> … <!-- meta-skills:end -->` blocks (markdown)
+  or `# meta-skills:start … # meta-skills:end` blocks (text/YAML) or `_meta_skills` key (JSON)
+- Reports `has block`, `no block`, or `error` per file
+
+### Write-back
+
+- **Created** — file doesn't exist → creates it with the block
+- **Updated** — block exists → replaces in-place, preserving surrounding content
+- **Appended** — file exists without block → appends at end
+- **Skipped** — parse error (e.g. unterminated block) → refuses to overwrite unless `--force`
+- **Removed** — `meta-skills agent-config remove` strips the block
+- All operations support `--dry-run` for preview
+
+### CLI
+
+```bash
+# Detect which config files exist and whether they have a meta-skills block
+meta-skills agent-config
+
+# Inject/update blocks in all detected configs
+meta-skills agent-config inject
+
+# Preview injection without writing
+meta-skills agent-config inject --dry-run
+
+# Force overwrite even on parse errors
+meta-skills agent-config inject --force
+
+# Remove blocks
+meta-skills agent-config remove
+```
+
+### Design
+
+- **Read-only detection** — `parseForBlock()` never writes; returns `{ exists, hasBlock, blockRange, blockText, content, error }`
+- **Atomic write** — `writeBlock()` reads, splices, writes; never partial
+- **Single source of truth** — `blockContent()` returns the canonical instruction string; used by both detection and write-back
+- **Zero new dependencies** — uses only Node.js stdlib (`node:fs`, `node:os`, `node:path`)
+- **30 tests** — 17 detection + 13 write-back (create, update, append, remove, dry-run, force, injectAll)
 
 ## References
 

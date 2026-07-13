@@ -221,6 +221,46 @@ alwaysRead:
 Before working, scan meta-skills files for available skills.
 ```
 
+## v1.5 — Agent Config Injection
+
+`meta-skills agent-config` detects and injects meta-skills scan instructions into agent config files.
+
+### Commands
+
+```bash
+# Detect which config files exist and whether they have a meta-skills block
+meta-skills agent-config
+
+# Inject/update blocks in all detected configs
+meta-skills agent-config inject
+
+# Preview without writing
+meta-skills agent-config inject --dry-run
+
+# Force overwrite even on parse errors
+meta-skills agent-config inject --force
+
+# Remove blocks
+meta-skills agent-config remove
+```
+
+### Supported files
+
+| File | Agent | Type |
+|------|-------|------|
+| `CLAUDE.md` | Claude Code | Markdown (`<!-- meta-skills:start -->`) |
+| `.cursorrules` | Cursor | Text (`# meta-skills:start`) |
+| `AGENTS.md` | OpenClaw | Markdown (`<!-- meta-skills:start -->`) |
+| `~/.config/gemini-cli/config.yaml` | Gemini CLI | Text (`# meta-skills:start`) |
+| `~/.config/gemini-cli/config.json` | Gemini CLI | JSON (`_meta_skills` key) |
+
+### Safety
+
+- **Read-only detection** — `meta-skills agent-config` (no subcommand) never writes
+- **Atomic write** — reads, splices, writes; never partial
+- **Dry-run** — `--dry-run` shows what would happen without touching files
+- **Parse error guard** — refuses to overwrite malformed blocks unless `--force`
+
 ## Why JSON?
 
 - **Parsable by any agent** — no YAML frontmatter to extract
@@ -251,7 +291,7 @@ Before working, scan meta-skills files for available skills.
 
 - [x] **v1.4 — Web dashboard** — Local web UI showing skill usage heatmaps, stale-skill warnings, priority distribution, co-occurrence graphs, and a bundle explorer. `meta-skills dashboard --port 7777` boots a Node http server bound to 127.0.0.1 (loopback-only, security) and serves a single-page HTML+CSS+vanilla-JS app. JSON API at `/api/index`, `/api/logs`, `/api/stale`, `/api/priority`, `/api/cooccurrence`, `/api/heatmap`, `/api/bundles`. Auto-refreshes every 30s. Zero new dependencies — uses only Node.js stdlib. *Inspired by: agentskills.io visual catalog, Claude Code skill stats demand.*
 
-- [ ] **v1.5 — Agent config injection** — Auto-inject meta-skills scan instructions into `CLAUDE.md`, `.cursorrules`, `AGENTS.md`, and Gemini CLI config. Detects existing references and merges gracefully. *Inspired by: Claude best practices docs, progressive disclosure pattern.*
+- [x] **v1.5 — Agent config injection** — Auto-inject meta-skills scan instructions into `CLAUDE.md`, `.cursorrules`, `AGENTS.md`, and Gemini CLI config. `meta-skills agent-config detect|inject|remove` with `--dry-run` and `--force`. 30 tests, zero new deps. *Inspired by: Claude best practices docs, progressive disclosure pattern.*
 
 - [ ] **v1.6 — Skill quality scoring** — Score each skill on readability, trigger precision, instruction clarity, and token efficiency. Low-scoring skills get flagged for revision. Uses Claude API to evaluate SKILL.md quality against [Anthropic's best practices](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices). *Inspired by: Anthropic skill authoring best practices (concise, degrees of freedom, 500-line rule).*
 
