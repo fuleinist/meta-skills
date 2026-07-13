@@ -32,11 +32,11 @@ const PKG = JSON.parse(fs.readFileSync(path.resolve(__dirname, '..', 'package.js
 
 // Î“Ã¶Ã‡Î“Ã¶Ã‡ Import all modules directly (no execSync) Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡
 
-let _scanner, _projectScanner, _tracker, _improver, _maintainer, _validator, _syncer, _marketplace, _failureAnalyzer, _dashboard;
+let _scanner, _projectScanner, _tracker, _improver, _maintainer, _validator, _syncer, _marketplace, _failureAnalyzer, _dashboard, _qualityScorer;
 
 async function ensureModules() {
   if (!_scanner) {
-    const [scannerMod, projectMod, trackerMod, improveMod, maintMod, validMod, syncMod, mpMod, faMod, dashMod] = await Promise.all([
+    const [scannerMod, projectMod, trackerMod, improveMod, maintMod, validMod, syncMod, mpMod, faMod, dashMod, qsMod] = await Promise.all([
       import(pathToFileURL(path.resolve(__dirname, 'global-scanner.mjs')).href),
       import(pathToFileURL(path.resolve(__dirname, 'project-scanner.mjs')).href),
       import(pathToFileURL(path.resolve(__dirname, 'usage-tracker.mjs')).href),
@@ -47,6 +47,7 @@ async function ensureModules() {
       import(pathToFileURL(path.resolve(__dirname, 'marketplace.mjs')).href),
       import(pathToFileURL(path.resolve(__dirname, 'failure-analyzer.mjs')).href),
       import(pathToFileURL(path.resolve(__dirname, 'dashboard.mjs')).href),
+      import(pathToFileURL(path.resolve(__dirname, 'quality-scorer.mjs')).href),
     ]);
     _scanner = scannerMod;
     _projectScanner = projectMod;
@@ -58,6 +59,7 @@ async function ensureModules() {
     _marketplace = mpMod;
     _failureAnalyzer = faMod;
     _dashboard = dashMod;
+    _qualityScorer = qsMod;
   }
 }
 
@@ -302,6 +304,58 @@ async function cmdDashboard(args) {
   await _dashboard.cmdDashboard(args);
 }
 
+async function cmdQuality(args) {
+  await ensureModules();
+  const globalJsonPath = path.resolve(
+    args[args.indexOf('--global-json') + 1] ||
+    path.join(os.homedir(), '.meta-skills', 'global.json')
+  );
+  const thresholdIdx = args.indexOf('--threshold');
+  const threshold = thresholdIdx >= 0 ? parseInt(args[thresholdIdx + 1], 10) : 0;
+  const asJson = args.includes('--json');
+
+  const { results, summary } = _qualityScorer.scoreAll(globalJsonPath, { threshold });
+
+  if (summary.error) {
+    console.error(summary.error);
+    process.exit(1);
+  }
+
+  if (asJson) {
+    console.log(JSON.stringify({ results, summary }, null, 2));
+    return;
+  }
+
+  console.log(`Skill Quality Report`);
+  console.log(`====================`);
+  console.log(`Total skills: ${summary.total}`);
+  console.log(`Scored: ${summary.scored}`);
+  console.log(`Average: ${summary.averageScore}/100`);
+  console.log(`Median:  ${summary.medianScore}/100`);
+  console.log(`Range:   ${summary.minScore}–${summary.maxScore}`);
+  console.log('');
+
+  if (results.length === 0) {
+    console.log('No skills scored below threshold.');
+  } else {
+    console.log(`Skills (sorted by score, lowest first):`);
+    console.log('');
+    for (const r of results) {
+      const flagStr = r.flags.length > 0 ? ` [${r.flags.join(', ')}]` : '';
+      console.log(`  ${r.score}/100  ${r.id}${flagStr}`);
+      console.log(`           readability: ${r.dimensions.readability}  trigger: ${r.dimensions.triggerPrecision}  clarity: ${r.dimensions.instructionClarity}  efficiency: ${r.dimensions.tokenEfficiency}`);
+    }
+  }
+
+  if (Object.keys(summary.flags).length > 0) {
+    console.log('');
+    console.log('Flag summary:');
+    for (const [flag, count] of Object.entries(summary.flags)) {
+      console.log(`  ${flag}: ${count} skill(s)`);
+    }
+  }
+}
+
 function showHelp() {
   console.log(`meta-skills v${PKG.version} — Agent Skill Index`);
   console.log('');
@@ -332,6 +386,7 @@ function showHelp() {
   console.log('  install <skill-id>         Install a marketplace skill (writes SKILL.md, registers in global.json)');
   console.log('  marketplace <sub>          Raw marketplace passthrough (search|install|list|refresh)');
   console.log('  dashboard [--port 7777]    Local web dashboard (v1.4) — open http://127.0.0.1:7777');
+  console.log('  quality [--threshold <n>] [--json]  Skill quality scoring (v1.6)');
   console.log('');
   console.log('Options:');
   console.log('  --help                     Show this help message');
@@ -394,6 +449,7 @@ async function main() {
       case 'propose':   await cmdPropose(rest); break;
       case 'marketplace': await cmdMarketplace(rest); break;
       case 'dashboard':   await cmdDashboard(rest); break;
+      case 'quality':      await cmdQuality(rest); break;
       default:
         console.error(`✗ unknown command: ${command}`);
         console.error('  Run `meta-skills --help` for usage.');

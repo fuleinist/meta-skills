@@ -1,9 +1,9 @@
 ---
 name: meta-skills
-description: A lightweight, self-improving JSON index that lets agents discover all available skills in ~150 tokens. Scans global agent configs (Claude Code, Cursor, OpenClaw, Hermes) and project files to generate a fast-reference skill catalog with usage tracking, auto-promotion, background maintenance, failure-based patch proposals, and a local web dashboard.
+description: A lightweight, self-improving JSON index that lets agents discover all available skills in ~150 tokens. Scans global agent configs (Claude Code, Cursor, OpenClaw, Hermes) and project files to generate a fast-reference skill catalog with usage tracking, auto-promotion, background maintenance, failure-based patch proposals, a local web dashboard, agent config injection, and skill quality scoring.
 metadata:
   author: community
-  version: "1.4.0"
+  version: "1.6.0"
   schema: https://meta-skills.dev/schema/v1.json
 ---
 
@@ -262,6 +262,53 @@ meta-skills dashboard --global-json /path/to/global.json --log-dir /path/to/logs
 - **Pattern discovery** — co-occurrence reveals which skills work well together (bundling candidates)
 - **Activity monitoring** — heatmap shows daily engagement without leaving the terminal
 - **Onboarding** — new users can `meta-skills dashboard` and see their full skill landscape in 30 seconds
+
+## Phase 9: Skill Quality Scoring (v1.6)
+
+Heuristic scoring of SKILL.md files across 4 dimensions — no external API calls.
+
+### Scoring Dimensions
+
+| Dimension | Weight | What It Checks |
+|-----------|--------|----------------|
+| **Readability** | 25% | Frontmatter, description, section structure, length (50–500 lines), code examples, links |
+| **Trigger Precision** | 30% | `when` field exists, length > 20 chars, trigger words present, no generic words, > 2 meaningful words |
+| **Instruction Clarity** | 25% | Numbered steps, code blocks, examples, anti-patterns/cautions, output descriptions, references |
+| **Token Efficiency** | 20% | Meaningful line ratio, no commented-out code, no ASCII art, avg line length < 100, no duplicate sections |
+
+Each dimension scores 0–100. Overall = weighted average (0–100).
+
+### Flags
+
+Skills below 40 in any dimension get flagged:
+- `low-readability` — frontmatter missing or file too short/long
+- `vague-trigger` — `when` field missing, too short, or uses generic words
+- `unclear-instructions` — no numbered steps, no code blocks, no examples
+- `inefficient` — commented code, ASCII art, poor line ratio
+- `critical` — overall score < 30
+
+### CLI
+
+```bash
+# Score all skills in global.json
+meta-skills quality
+
+# Only show skills below threshold
+meta-skills quality --threshold 50
+
+# JSON output
+meta-skills quality --json
+
+# Custom global.json path
+meta-skills quality --global-json /path/to/global.json
+```
+
+### Design
+
+- **Zero external API calls** — pure heuristic analysis of local files
+- **No new dependencies** — uses only Node.js stdlib
+- **21 tests** covering all 4 dimensions + scoreSkill + scoreAll + edge cases
+- **Inspired by:** Anthropic skill authoring best practices (concise, degrees of freedom, 500-line rule, trigger precision)
 
 ## References
 
