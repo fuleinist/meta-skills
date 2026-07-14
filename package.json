@@ -8,7 +8,7 @@
     "meta-skills": "src/cli.mjs"
   },
   "scripts": {
-    "test": "node src/global-scanner.test.mjs && node src/project-scanner.test.mjs && node src/usage-tracker.test.mjs && node src/self-improve.test.mjs && node src/maintenance.test.mjs && node src/validate.test.mjs && node src/sync.test.mjs && node src/marketplace.test.mjs && node src/failure-analyzer.test.mjs && node src/dashboard.test.mjs && node src/quality-scorer.test.mjs",
+    "test": "node src/global-scanner.test.mjs && node src/project-scanner.test.mjs && node src/usage-tracker.test.mjs && node src/self-improve.test.mjs && node src/maintenance.test.mjs && node src/validate.test.mjs && node src/sync.test.mjs && node src/marketplace.test.mjs && node src/failure-analyzer.test.mjs && node src/dashboard.test.mjs && node src/agent-config.test.mjs && node src/quality-scorer.test.mjs",
     "init:global": "node src/cli.mjs init --global",
     "init:local": "node src/cli.mjs init --local",
     "maintain": "node src/cli.mjs maintain",
@@ -16,7 +16,8 @@
     "sync": "node src/cli.mjs sync",
     "sync:push": "node src/cli.mjs sync push",
     "sync:pull": "node src/cli.mjs sync pull",
-    "dashboard": "node src/cli.mjs dashboard"
+    "dashboard": "node src/cli.mjs dashboard",
+    "agent-config": "node src/cli.mjs agent-config"
   },
   "keywords": [
     "meta-skills",

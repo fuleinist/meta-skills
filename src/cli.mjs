@@ -32,11 +32,11 @@ const PKG = JSON.parse(fs.readFileSync(path.resolve(__dirname, '..', 'package.js
 
 // Î“Ã¶Ã‡Î“Ã¶Ã‡ Import all modules directly (no execSync) Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡
 
-let _scanner, _projectScanner, _tracker, _improver, _maintainer, _validator, _syncer, _marketplace, _failureAnalyzer, _dashboard, _qualityScorer;
+let _scanner, _projectScanner, _tracker, _improver, _maintainer, _validator, _syncer, _marketplace, _failureAnalyzer, _dashboard, _agentConfig, _qualityScorer;
 
 async function ensureModules() {
   if (!_scanner) {
-    const [scannerMod, projectMod, trackerMod, improveMod, maintMod, validMod, syncMod, mpMod, faMod, dashMod, qsMod] = await Promise.all([
+    const [scannerMod, projectMod, trackerMod, improveMod, maintMod, validMod, syncMod, mpMod, faMod, dashMod, acMod, qsMod] = await Promise.all([
       import(pathToFileURL(path.resolve(__dirname, 'global-scanner.mjs')).href),
       import(pathToFileURL(path.resolve(__dirname, 'project-scanner.mjs')).href),
       import(pathToFileURL(path.resolve(__dirname, 'usage-tracker.mjs')).href),
@@ -47,6 +47,7 @@ async function ensureModules() {
       import(pathToFileURL(path.resolve(__dirname, 'marketplace.mjs')).href),
       import(pathToFileURL(path.resolve(__dirname, 'failure-analyzer.mjs')).href),
       import(pathToFileURL(path.resolve(__dirname, 'dashboard.mjs')).href),
+      import(pathToFileURL(path.resolve(__dirname, 'agent-config.mjs')).href),
       import(pathToFileURL(path.resolve(__dirname, 'quality-scorer.mjs')).href),
     ]);
     _scanner = scannerMod;
@@ -59,6 +60,7 @@ async function ensureModules() {
     _marketplace = mpMod;
     _failureAnalyzer = faMod;
     _dashboard = dashMod;
+    _agentConfig = acMod;
     _qualityScorer = qsMod;
   }
 }
@@ -352,6 +354,54 @@ async function cmdQuality(args) {
     console.log('Flag summary:');
     for (const [flag, count] of Object.entries(summary.flags)) {
       console.log(`  ${flag}: ${count} skill(s)`);
+async function cmdAgentConfig(args) {
+  await ensureModules();
+  const targetDir = process.cwd();
+  const dryRun = args.includes('--dry-run');
+  const force = args.includes('--force');
+  const sub = args[0];
+
+  switch (sub) {
+    case 'inject': {
+      const results = _agentConfig.injectAll(targetDir, { dryRun, force });
+      if (results.length === 0) {
+        console.log('agent-config: no supported config files found');
+      } else {
+        console.log(`agent-config: injected block into ${results.length} file(s)`);
+        for (const r of results) {
+          console.log(`  - ${r.action}: ${r.path}${r.error ? ` (${r.error})` : ''}`);
+        }
+      }
+      break;
+    }
+    case 'remove': {
+      const specs = _agentConfig.defaultConfigSpecs(targetDir);
+      const found = _agentConfig.detectConfigs(specs);
+      let count = 0;
+      for (const { spec } of found) {
+        const r = _agentConfig.removeBlock(spec, { dryRun });
+        count++;
+        console.log(`  - ${r.action}: ${spec.name} (${spec.file})${r.error ? ` — ${r.error}` : ''}`);
+      }
+      if (count === 0) {
+        console.log('agent-config: no supported config files found');
+      }
+      break;
+    }
+    default: {
+      // detect (default)
+      const specs = _agentConfig.defaultConfigSpecs(targetDir);
+      const found = _agentConfig.detectConfigs(specs);
+      if (found.length === 0) {
+        console.log('agent-config: no supported config files found');
+      } else {
+        console.log(`agent-config: found ${found.length} config file(s)`);
+        for (const { spec } of found) {
+          const parsed = _agentConfig.parseForBlock(spec);
+          const flag = parsed.hasBlock ? 'has block' : (parsed.error ? `error: ${parsed.error}` : 'no block');
+          console.log(`  - ${spec.name} (${spec.file}) — ${flag}`);
+        }
+      }
     }
   }
 }
@@ -387,6 +437,7 @@ function showHelp() {
   console.log('  marketplace <sub>          Raw marketplace passthrough (search|install|list|refresh)');
   console.log('  dashboard [--port 7777]    Local web dashboard (v1.4) — open http://127.0.0.1:7777');
   console.log('  quality [--threshold <n>] [--json]  Skill quality scoring (v1.6)');
+  console.log('  agent-config <detect|inject|remove>  Agent config injection (v1.5)');
   console.log('');
   console.log('Options:');
   console.log('  --help                     Show this help message');
@@ -450,6 +501,7 @@ async function main() {
       case 'marketplace': await cmdMarketplace(rest); break;
       case 'dashboard':   await cmdDashboard(rest); break;
       case 'quality':      await cmdQuality(rest); break;
+      case 'agent-config': await cmdAgentConfig(rest); break;
       default:
         console.error(`✗ unknown command: ${command}`);
         console.error('  Run `meta-skills --help` for usage.');

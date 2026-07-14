@@ -263,6 +263,29 @@ meta-skills dashboard --global-json /path/to/global.json --log-dir /path/to/logs
 - **Activity monitoring** — heatmap shows daily engagement without leaving the terminal
 - **Onboarding** — new users can `meta-skills dashboard` and see their full skill landscape in 30 seconds
 
+## Phase 8: Agent Config Injection (v1.5)
+
+Detect and inject meta-skills scan instructions into agent configuration files:
+`CLAUDE.md`, `.cursorrules`, `AGENTS.md`, and Gemini CLI config (`config.yaml` / `config.json`).
+
+### Detection
+
+- Scans the target directory (default: `process.cwd()`) for 5 canonical config file specs
+- Project-level: `CLAUDE.md`, `.cursorrules`, `AGENTS.md`
+- Global-only: `~/.config/gemini-cli/config.yaml`, `~/.config/gemini-cli/config.json`
+- Parses each file for existing `<!-- meta-skills:start --> … <!-- meta-skills:end -->` blocks (markdown)
+  or `# meta-skills:start … # meta-skills:end` blocks (text/YAML) or `_meta_skills` key (JSON)
+- Reports `has block`, `no block`, or `error` per file
+
+### Write-back
+
+- **Created** — file doesn't exist → creates it with the block
+- **Updated** — block exists → replaces in-place, preserving surrounding content
+- **Appended** — file exists without block → appends at end
+- **Skipped** — parse error (e.g. unterminated block) → refuses to overwrite unless `--force`
+- **Removed** — `meta-skills agent-config remove` strips the block
+- All operations support `--dry-run` for preview
+
 ## Phase 9: Skill Quality Scoring (v1.6)
 
 Heuristic scoring of SKILL.md files across 4 dimensions — no external API calls.
@@ -301,6 +324,21 @@ meta-skills quality --json
 
 # Custom global.json path
 meta-skills quality --global-json /path/to/global.json
+
+# Detect which config files exist and whether they have a meta-skills block
+meta-skills agent-config
+
+# Inject/update blocks in all detected configs
+meta-skills agent-config inject
+
+# Preview injection without writing
+meta-skills agent-config inject --dry-run
+
+# Force overwrite even on parse errors
+meta-skills agent-config inject --force
+
+# Remove blocks
+meta-skills agent-config remove
 ```
 
 ### Design
@@ -309,6 +347,12 @@ meta-skills quality --global-json /path/to/global.json
 - **No new dependencies** — uses only Node.js stdlib
 - **21 tests** covering all 4 dimensions + scoreSkill + scoreAll + edge cases
 - **Inspired by:** Anthropic skill authoring best practices (concise, degrees of freedom, 500-line rule, trigger precision)
+
+- **Read-only detection** — `parseForBlock()` never writes; returns `{ exists, hasBlock, blockRange, blockText, content, error }`
+- **Atomic write** — `writeBlock()` reads, splices, writes; never partial
+- **Single source of truth** — `blockContent()` returns the canonical instruction string; used by both detection and write-back
+- **Zero new dependencies** — uses only Node.js stdlib (`node:fs`, `node:os`, `node:path`)
+- **30 tests** — 17 detection + 13 write-back (create, update, append, remove, dry-run, force, injectAll)
 
 ## References
 
