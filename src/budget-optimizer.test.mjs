@@ -544,3 +544,130 @@ test('smoke: examples/global.json runs through cmdBudget without crashing', asyn
   assert.equal(original, after, 'smoke test must not mutate examples/global.json');
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
+
+// ---------------------------------------------------------------------------
+// AC5: apply path via cmdBudget (write mode)
+// ---------------------------------------------------------------------------
+
+test('cmdBudget: --archive actually moves skills to archived_skills list', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'budget-archive-'));
+  const globalPath = path.join(tmpDir, 'global.json');
+  const data = {
+    version: '1.0',
+    generated: '2026-07-01T00:00:00+10:00',
+    source: 'global',
+    skills: [
+      { id: 'keep', when: 'a'.repeat(80), why: 'b'.repeat(40), path: '/p', priority: 'high', usage_count: 50 },
+      { id: 'drop', when: 'c'.repeat(80), why: 'd'.repeat(40), path: '/q', priority: 'low', usage_count: 0 },
+    ],
+  };
+  fs.writeFileSync(globalPath, JSON.stringify(data, null, 2));
+
+  const origOut = process.stdout.write.bind(process.stdout);
+  const origErr = process.stderr.write.bind(process.stderr);
+  process.stdout.write = () => true;
+  process.stderr.write = () => true;
+  try {
+    // Cap that forces archiving the low-priority one
+    const code = await cmdBudget({
+      globalJson: globalPath,
+      maxTokens: 50,
+      archive: true,
+      dryRun: false,
+    });
+    assert.equal(code, 0);
+  } finally {
+    process.stdout.write = origOut;
+    process.stderr.write = origErr;
+  }
+
+  const after = JSON.parse(fs.readFileSync(globalPath, 'utf8'));
+  // 'drop' should be in archived_skills, 'keep' should remain
+  assert.equal(after.skills.length, 1);
+  assert.equal(after.skills[0].id, 'keep');
+  assert.ok(Array.isArray(after.archived_skills));
+  assert.equal(after.archived_skills.length, 1);
+  assert.equal(after.archived_skills[0].id, 'drop');
+  assert.equal(after.archived_skills[0].priority, 'archived');
+  // generated timestamp should be updated
+  assert.notEqual(after.generated, '2026-07-01T00:00:00+10:00');
+
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+});
+
+test('cmdBudget: --write (without --archive) demotes in place', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'budget-demote-'));
+  const globalPath = path.join(tmpDir, 'global.json');
+  const data = {
+    version: '1.0',
+    generated: '2026-07-01T00:00:00+10:00',
+    source: 'global',
+    skills: [
+      { id: 'keep', when: 'a'.repeat(80), why: 'b'.repeat(40), path: '/p', priority: 'high', usage_count: 50 },
+      { id: 'drop', when: 'c'.repeat(80), why: 'd'.repeat(40), path: '/q', priority: 'medium', usage_count: 0 },
+    ],
+  };
+  fs.writeFileSync(globalPath, JSON.stringify(data, null, 2));
+
+  const origOut = process.stdout.write.bind(process.stdout);
+  const origErr = process.stderr.write.bind(process.stderr);
+  process.stdout.write = () => true;
+  process.stderr.write = () => true;
+  try {
+    const code = await cmdBudget({
+      globalJson: globalPath,
+      maxTokens: 50,
+      write: true,
+      dryRun: false,
+    });
+    assert.equal(code, 0);
+  } finally {
+    process.stdout.write = origOut;
+    process.stderr.write = origErr;
+  }
+
+  const after = JSON.parse(fs.readFileSync(globalPath, 'utf8'));
+  assert.equal(after.skills.length, 2);
+  const drop = after.skills.find((s) => s.id === 'drop');
+  assert.equal(drop.priority, 'low', 'medium should be demoted to low');
+  // No archived_skills list should be created when only demoting
+  assert.ok(!after.archived_skills || after.archived_skills.length === 0);
+
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+});
+
+test('cmdBudget: --use-quality applies v1.6 scores as multiplier (no crash)', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'budget-quality-'));
+  const globalPath = path.join(tmpDir, 'global.json');
+  fs.writeFileSync(globalPath, JSON.stringify({
+    version: '1.0',
+    generated: '2026-07-01T00:00:00+10:00',
+    source: 'global',
+    skills: [
+      { id: 'good', when: 'a'.repeat(80), why: 'b'.repeat(40), path: 'p', priority: 'high', usage_count: 50 },
+      { id: 'bad', when: 'c'.repeat(80), why: 'd'.repeat(40), path: 'q', priority: 'low', usage_count: 0 },
+    ],
+  }));
+
+  const origOut = process.stdout.write.bind(process.stdout);
+  const origErr = process.stderr.write.bind(process.stderr);
+  process.stdout.write = () => true;
+  process.stderr.write = () => true;
+  try {
+    // --use-quality may fail to score (no SKILL.md file), but the command
+    // should still complete gracefully. It uses multiplier=1.0 fallback.
+    const code = await cmdBudget({
+      globalJson: globalPath,
+      maxTokens: 50,
+      useQuality: true,
+      json: true,
+      dryRun: true,
+    });
+    // 0 = suggestions generated and applied (or 0 = under budget after apply)
+    assert.equal(code, 0);
+  } finally {
+    process.stdout.write = origOut;
+    process.stderr.write = origErr;
+  }
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+});
