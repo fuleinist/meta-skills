@@ -221,7 +221,6 @@ alwaysRead:
 Before working, scan meta-skills files for available skills.
 ```
 
-## v1.5 — Agent Config Injection
 
 `meta-skills agent-config` detects and injects meta-skills scan instructions into agent config files.
 
@@ -261,6 +260,40 @@ meta-skills agent-config remove
 - **Dry-run** — `--dry-run` shows what would happen without touching files
 - **Parse error guard** — refuses to overwrite malformed blocks unless `--force`
 
+
+`meta-skills quality` scores each skill on 4 heuristic dimensions (no external API calls).
+
+### Scoring Dimensions
+
+| Dimension | Weight | What It Checks |
+|-----------|--------|----------------|
+| **Readability** | 25% | Frontmatter, description, section structure, length, code examples, links |
+| **Trigger Precision** | 30% | `when` field exists, length, trigger words, no generic words |
+| **Instruction Clarity** | 25% | Numbered steps, code blocks, examples, anti-patterns, references |
+| **Token Efficiency** | 20% | Meaningful line ratio, no commented code, no ASCII art, avg line length |
+
+### CLI
+
+```bash
+# Score all skills
+meta-skills quality
+
+# Only show skills below threshold
+meta-skills quality --threshold 50
+
+# JSON output for scripting
+meta-skills quality --json
+```
+
+### Flags
+
+Skills below 40 in any dimension get flagged: `low-readability`, `vague-trigger`, `unclear-instructions`, `inefficient`, `critical` (< 30 overall).
+
+### Design
+
+- **Zero external API calls** — pure heuristic analysis
+- **Zero new dependencies** — uses only Node.js stdlib
+- **21 tests** covering all 4 dimensions + scoreSkill + scoreAll + edge cases
 ## Why JSON?
 
 - **Parsable by any agent** — no YAML frontmatter to extract
@@ -293,7 +326,7 @@ meta-skills agent-config remove
 
 - [x] **v1.5 — Agent config injection** — Auto-inject meta-skills scan instructions into `CLAUDE.md`, `.cursorrules`, `AGENTS.md`, and Gemini CLI config. `meta-skills agent-config detect|inject|remove` with `--dry-run` and `--force`. 30 tests, zero new deps. *Inspired by: Claude best practices docs, progressive disclosure pattern.*
 
-- [ ] **v1.6 — Skill quality scoring** — Score each skill on readability, trigger precision, instruction clarity, and token efficiency. Low-scoring skills get flagged for revision. Uses Claude API to evaluate SKILL.md quality against [Anthropic's best practices](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices). *Inspired by: Anthropic skill authoring best practices (concise, degrees of freedom, 500-line rule).*
+- [x] **v1.6 — Skill quality scoring** — Score each skill on readability, trigger precision, instruction clarity, and token efficiency. `meta-skills quality [--threshold <n>] [--json]`. 21 tests, zero external API calls, zero new deps. *Inspired by: Anthropic skill authoring best practices (concise, degrees of freedom, 500-line rule, trigger precision).*
 
 - [ ] **v1.7 — Token budget optimizer** — Analyze per-skill token cost vs. usage frequency. Suggest which skills to demote or archive to stay within a configurable context budget (e.g., "keep total active skill metadata under 500 tokens"). *Inspired by: progressive disclosure research (10-tool accuracy ceiling, 150-token meta-skills target).*
 

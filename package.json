@@ -1,6 +1,6 @@
 {
   "name": "meta-skills",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "description": "A lightweight, self-improving JSON index that lets agents discover all available skills in ~150 tokens",
   "type": "module",
   "main": "src/cli.mjs",
@@ -8,7 +8,7 @@
     "meta-skills": "src/cli.mjs"
   },
   "scripts": {
-    "test": "node src/global-scanner.test.mjs && node src/project-scanner.test.mjs && node src/usage-tracker.test.mjs && node src/self-improve.test.mjs && node src/maintenance.test.mjs && node src/validate.test.mjs && node src/sync.test.mjs && node src/marketplace.test.mjs && node src/failure-analyzer.test.mjs && node src/dashboard.test.mjs && node src/agent-config.test.mjs",
+    "test": "node src/global-scanner.test.mjs && node src/project-scanner.test.mjs && node src/usage-tracker.test.mjs && node src/self-improve.test.mjs && node src/maintenance.test.mjs && node src/validate.test.mjs && node src/sync.test.mjs && node src/marketplace.test.mjs && node src/failure-analyzer.test.mjs && node src/dashboard.test.mjs && node src/agent-config.test.mjs && node src/quality-scorer.test.mjs",
     "init:global": "node src/cli.mjs init --global",
     "init:local": "node src/cli.mjs init --local",
     "maintain": "node src/cli.mjs maintain",

@@ -1,9 +1,9 @@
 ---
 name: meta-skills
-description: A lightweight, self-improving JSON index that lets agents discover all available skills in ~150 tokens. Scans global agent configs (Claude Code, Cursor, OpenClaw, Hermes) and project files to generate a fast-reference skill catalog with usage tracking, auto-promotion, background maintenance, failure-based patch proposals, a local web dashboard, and agent config injection.
+description: A lightweight, self-improving JSON index that lets agents discover all available skills in ~150 tokens. Scans global agent configs (Claude Code, Cursor, OpenClaw, Hermes) and project files to generate a fast-reference skill catalog with usage tracking, auto-promotion, background maintenance, failure-based patch proposals, a local web dashboard, agent config injection, and skill quality scoring.
 metadata:
   author: community
-  version: "1.5.0"
+  version: "1.6.0"
   schema: https://meta-skills.dev/schema/v1.json
 ---
 
@@ -286,9 +286,45 @@ Detect and inject meta-skills scan instructions into agent configuration files:
 - **Removed** — `meta-skills agent-config remove` strips the block
 - All operations support `--dry-run` for preview
 
+## Phase 9: Skill Quality Scoring (v1.6)
+
+Heuristic scoring of SKILL.md files across 4 dimensions — no external API calls.
+
+### Scoring Dimensions
+
+| Dimension | Weight | What It Checks |
+|-----------|--------|----------------|
+| **Readability** | 25% | Frontmatter, description, section structure, length (50–500 lines), code examples, links |
+| **Trigger Precision** | 30% | `when` field exists, length > 20 chars, trigger words present, no generic words, > 2 meaningful words |
+| **Instruction Clarity** | 25% | Numbered steps, code blocks, examples, anti-patterns/cautions, output descriptions, references |
+| **Token Efficiency** | 20% | Meaningful line ratio, no commented-out code, no ASCII art, avg line length < 100, no duplicate sections |
+
+Each dimension scores 0–100. Overall = weighted average (0–100).
+
+### Flags
+
+Skills below 40 in any dimension get flagged:
+- `low-readability` — frontmatter missing or file too short/long
+- `vague-trigger` — `when` field missing, too short, or uses generic words
+- `unclear-instructions` — no numbered steps, no code blocks, no examples
+- `inefficient` — commented code, ASCII art, poor line ratio
+- `critical` — overall score < 30
+
 ### CLI
 
 ```bash
+# Score all skills in global.json
+meta-skills quality
+
+# Only show skills below threshold
+meta-skills quality --threshold 50
+
+# JSON output
+meta-skills quality --json
+
+# Custom global.json path
+meta-skills quality --global-json /path/to/global.json
+
 # Detect which config files exist and whether they have a meta-skills block
 meta-skills agent-config
 
@@ -306,6 +342,11 @@ meta-skills agent-config remove
 ```
 
 ### Design
+
+- **Zero external API calls** — pure heuristic analysis of local files
+- **No new dependencies** — uses only Node.js stdlib
+- **21 tests** covering all 4 dimensions + scoreSkill + scoreAll + edge cases
+- **Inspired by:** Anthropic skill authoring best practices (concise, degrees of freedom, 500-line rule, trigger precision)
 
 - **Read-only detection** — `parseForBlock()` never writes; returns `{ exists, hasBlock, blockRange, blockText, content, error }`
 - **Atomic write** — `writeBlock()` reads, splices, writes; never partial
