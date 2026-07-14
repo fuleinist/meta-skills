@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * meta-skills v1.2 — CLI Entry Point
+ * meta-skills v1.2 - CLI Entry Point
  *
  * Unified CLI that ties all modules together via direct imports.
  *
@@ -20,6 +20,7 @@
  *   meta-skills install <skill-id>     # Install a marketplace skill (v1.2)
  *   meta-skills marketplace <sub>      # Raw marketplace subcommand
  *   meta-skills dashboard [--port 7777] # Local web dashboard (v1.4)
+ *   meta-skills budget [--max-tokens 500] [--dry-run|--write|--archive]  # Token budget optimizer (v1.7)
  */
 
 import fs from 'node:fs';
@@ -30,13 +31,13 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PKG = JSON.parse(fs.readFileSync(path.resolve(__dirname, '..', 'package.json'), 'utf-8'));
 
-// Î“Ã¶Ã‡Î“Ã¶Ã‡ Import all modules directly (no execSync) Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡
+// Î"Ã¶Ã‡Î"Ã¶Ã‡ Import all modules directly (no execSync) Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡
 
-let _scanner, _projectScanner, _tracker, _improver, _maintainer, _validator, _syncer, _marketplace, _failureAnalyzer, _dashboard, _agentConfig, _qualityScorer;
+let _scanner, _projectScanner, _tracker, _improver, _maintainer, _validator, _syncer, _marketplace, _failureAnalyzer, _dashboard, _agentConfig, _qualityScorer, _budgetOptimizer;
 
 async function ensureModules() {
   if (!_scanner) {
-    const [scannerMod, projectMod, trackerMod, improveMod, maintMod, validMod, syncMod, mpMod, faMod, dashMod, acMod, qsMod] = await Promise.all([
+    const [scannerMod, projectMod, trackerMod, improveMod, maintMod, validMod, syncMod, mpMod, faMod, dashMod, acMod, qsMod, boMod] = await Promise.all([
       import(pathToFileURL(path.resolve(__dirname, 'global-scanner.mjs')).href),
       import(pathToFileURL(path.resolve(__dirname, 'project-scanner.mjs')).href),
       import(pathToFileURL(path.resolve(__dirname, 'usage-tracker.mjs')).href),
@@ -49,6 +50,7 @@ async function ensureModules() {
       import(pathToFileURL(path.resolve(__dirname, 'dashboard.mjs')).href),
       import(pathToFileURL(path.resolve(__dirname, 'agent-config.mjs')).href),
       import(pathToFileURL(path.resolve(__dirname, 'quality-scorer.mjs')).href),
+      import(pathToFileURL(path.resolve(__dirname, 'budget-optimizer.mjs')).href),
     ]);
     _scanner = scannerMod;
     _projectScanner = projectMod;
@@ -62,10 +64,11 @@ async function ensureModules() {
     _dashboard = dashMod;
     _agentConfig = acMod;
     _qualityScorer = qsMod;
+    _budgetOptimizer = boMod;
   }
 }
 
-// Î“Ã¶Ã‡Î“Ã¶Ã‡ Commands Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡
+// Î"Ã¶Ã‡Î"Ã¶Ã‡ Commands Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡
 
 async function cmdInit(args) {
   const isGlobal = args.includes('--global');
@@ -100,7 +103,7 @@ async function cmdInit(args) {
     };
 
     fs.writeFileSync(outputPath, JSON.stringify(output, null, 2) + '\n', 'utf-8');
-    console.log(`Î“Â£Ã´ global.json written to ${outputPath}`);
+    console.log(`Î"Â£Ã ́ global.json written to ${outputPath}`);
     console.log(`  ${merged.length} skills found`);
   }
 
@@ -131,7 +134,7 @@ async function cmdInit(args) {
     };
 
     fs.writeFileSync(outputPath, JSON.stringify(output, null, 2) + '\n', 'utf-8');
-    console.log(`Î“Â£Ã´ project.json written to ${outputPath}`);
+    console.log(`Î"Â£Ã ́ project.json written to ${outputPath}`);
     console.log(`  project: ${projectName}`);
   }
 }
@@ -144,7 +147,7 @@ async function cmdRecord(args) {
     else if (args[i] === '--log-dir' && i + 1 < args.length) options.logDir = path.resolve(args[++i]);
     else if (!options.skillId) options.skillId = args[i];
   }
-  if (!options.skillId) { console.error('Î“Â£Ã¹ missing skill-id'); process.exit(1); }
+  if (!options.skillId) { console.error('Î"Â£Ã1 missing skill-id'); process.exit(1); }
   _tracker.cmdRecord(options.skillId, options);
 }
 
@@ -224,7 +227,7 @@ async function cmdSync(args) {
       _syncer.cmdStatus(options);
       break;
     default:
-      // No subcommand Î“Ã¥Ã† combined push + pull
+      // No subcommand Î"Ã¥Ã† combined push + pull
       _syncer.cmdSync(options);
   }
 }
@@ -334,7 +337,7 @@ async function cmdQuality(args) {
   console.log(`Scored: ${summary.scored}`);
   console.log(`Average: ${summary.averageScore}/100`);
   console.log(`Median:  ${summary.medianScore}/100`);
-  console.log(`Range:   ${summary.minScore}–${summary.maxScore}`);
+  console.log(`Range:   ${summary.minScore}-${summary.maxScore}`);
   console.log('');
 
   if (results.length === 0) {
@@ -354,6 +357,10 @@ async function cmdQuality(args) {
     console.log('Flag summary:');
     for (const [flag, count] of Object.entries(summary.flags)) {
       console.log(`  ${flag}: ${count} skill(s)`);
+    }
+  }
+}
+
 async function cmdAgentConfig(args) {
   await ensureModules();
   const targetDir = process.cwd();
@@ -381,7 +388,7 @@ async function cmdAgentConfig(args) {
       for (const { spec } of found) {
         const r = _agentConfig.removeBlock(spec, { dryRun });
         count++;
-        console.log(`  - ${r.action}: ${spec.name} (${spec.file})${r.error ? ` — ${r.error}` : ''}`);
+        console.log(`  - ${r.action}: ${spec.name} (${spec.file})${r.error ? ` - ${r.error}` : ''}`);
       }
       if (count === 0) {
         console.log('agent-config: no supported config files found');
@@ -399,15 +406,48 @@ async function cmdAgentConfig(args) {
         for (const { spec } of found) {
           const parsed = _agentConfig.parseForBlock(spec);
           const flag = parsed.hasBlock ? 'has block' : (parsed.error ? `error: ${parsed.error}` : 'no block');
-          console.log(`  - ${spec.name} (${spec.file}) — ${flag}`);
+          console.log(`  - ${spec.name} (${spec.file}) - ${flag}`);
         }
       }
     }
   }
 }
 
+async function cmdBudget(args) {
+  await ensureModules();
+
+  // Parse args (same pattern as the other commands).
+  const globalJsonPath = path.resolve(
+    args[args.indexOf('--global-json') + 1] ||
+    path.join(os.homedir(), '.meta-skills', 'global.json')
+  );
+  const maxTokensIdx = args.indexOf('--max-tokens');
+  const maxTokens = maxTokensIdx >= 0 ? parseInt(args[maxTokensIdx + 1], 10) : undefined;
+  const asJson = args.includes('--json');
+  const archive = args.includes('--archive');
+  const useQuality = args.includes('--use-quality');
+  const includeSkillMd = args.includes('--include-skill-md');
+  // --dry-run is the default; --write (or --archive) opts in to apply.
+  const dryRun = !args.includes('--write') && !archive;
+
+  const code = await _budgetOptimizer.cmdBudget({
+    globalJson: globalJsonPath,
+    maxTokens,
+    json: asJson,
+    archive,
+    useQuality,
+    includeSkillMd,
+    dryRun,
+    write: args.includes('--write'),
+  });
+
+  if (code !== 0) {
+    process.exit(code);
+  }
+}
+
 function showHelp() {
-  console.log(`meta-skills v${PKG.version} — Agent Skill Index`);
+  console.log(`meta-skills v${PKG.version} - Agent Skill Index`);
   console.log('');
   console.log('Usage:');
   console.log('  meta-skills <command> [options]');
@@ -435,8 +475,11 @@ function showHelp() {
   console.log('  search <query>             Search marketplace registries (awesome-agent-skills, agentskills.io)');
   console.log('  install <skill-id>         Install a marketplace skill (writes SKILL.md, registers in global.json)');
   console.log('  marketplace <sub>          Raw marketplace passthrough (search|install|list|refresh)');
-  console.log('  dashboard [--port 7777]    Local web dashboard (v1.4) — open http://127.0.0.1:7777');
+  console.log('  dashboard [--port 7777]    Local web dashboard (v1.4) - open http://127.0.0.1:7777');
   console.log('  quality [--threshold <n>] [--json]  Skill quality scoring (v1.6)');
+  console.log('  budget [--max-tokens 500]         Token budget optimizer (v1.7) - dry-run by default');
+  console.log('  budget [--write|--archive]        Apply demote/archive (no --dry-run)');
+  console.log('  budget --use-quality              Apply v1.6 quality scores as value multiplier');
   console.log('  agent-config <detect|inject|remove>  Agent config injection (v1.5)');
   console.log('');
   console.log('Options:');
@@ -460,9 +503,9 @@ function showHelp() {
   console.log('  --port <n>                 Dashboard server port (default 7777; v1.4)');
 }
 
-// Î“Ã¶Ã‡Î“Ã¶Ã‡ Main Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡
+// Î"Ã¶Ã‡Î"Ã¶Ã‡ Main Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡
 
-// Î“Ã¶Ã‡Î“Ã¶Ã‡ Main Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡
+// Î"Ã¶Ã‡Î"Ã¶Ã‡ Main Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡
 
 async function main() {
   const args = process.argv.slice(2);
@@ -501,6 +544,7 @@ async function main() {
       case 'marketplace': await cmdMarketplace(rest); break;
       case 'dashboard':   await cmdDashboard(rest); break;
       case 'quality':      await cmdQuality(rest); break;
+      case 'budget':       await cmdBudget(rest); break;
       case 'agent-config': await cmdAgentConfig(rest); break;
       default:
         console.error(`✗ unknown command: ${command}`);
@@ -508,7 +552,7 @@ async function main() {
         process.exit(1);
     }
   } catch (e) {
-    console.error(`Î“Â£Ã¹ ${e.message}`);
+    console.error(`Î"Â£Ã1 ${e.message}`);
     process.exit(1);
   }
 }

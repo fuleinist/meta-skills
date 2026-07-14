@@ -26,7 +26,8 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { buildBudgetPanel } from './budget-optimizer.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_HOST = '127.0.0.1';
@@ -296,6 +297,13 @@ function makeHandler(options) {
         sendJson(res, 200, { bundles: buildBundles(readIndex(globalPath)) });
         return;
       }
+      if (urlPath === '/api/budget') {
+        const max = parseInt(params.max || '500', 10);
+        const action = params.action === 'archive' ? 'archive' : 'demote';
+        const index = readIndex(globalPath);
+        sendJson(res, 200, buildBudgetPanel(index, { maxTokens: max, action }));
+        return;
+      }
       if (urlPath === '/api/health') {
         sendJson(res, 200, { ok: true, version: '1.4', generated: readIndex(globalPath).generated });
         return;
@@ -448,6 +456,11 @@ export function getHtml() {
   </section>
 
   <section class="panel">
+    <h2>Token Budget (v1.7)</h2>
+    <div id="budget-body"></div>
+  </section>
+
+  <section class="panel">
     <h2>Co-occurrence (5min window, last 30d)</h2>
     <div class="cooc" id="cooc-body"></div>
   </section>
@@ -481,7 +494,7 @@ function heatColor(n) {
 
 async function refresh() {
   try {
-    const [health, stats, heat, stale, prio, cooc, bundles] = await Promise.all([
+    const [health, stats, heat, stale, prio, cooc, bundles, budget] = await Promise.all([
       fetchJson('/api/health'),
       fetchJson('/api/index'),
       fetchJson('/api/heatmap?days=7'),
@@ -489,6 +502,7 @@ async function refresh() {
       fetchJson('/api/priority'),
       fetchJson('/api/cooccurrence?since=30&window=5'),
       fetchJson('/api/bundles'),
+      fetchJson('/api/budget?max=500'),
     ]);
 
     $('meta').textContent = 'v' + (health.version || '?') + ' · index generated ' + (health.generated || 'never') + ' · ' + new Date().toLocaleTimeString();
@@ -565,6 +579,34 @@ async function refresh() {
         b += '<div class="bundle"><div class="name">' + escape(x.name) + '</div><div class="skills">' + x.skills.map(escape).join(' · ') + '</div>' + (x.description ? '<div style="margin-top:4px;font-size:11px">' + escape(x.description) + '</div>' : '') + '</div>';
       }
       $('bundles-body').innerHTML = b;
+    }
+
+    // Token budget (v1.7)
+    {
+      const utilPct = Math.min(100, (budget.utilization * 100)).toFixed(0);
+      const utilColor = budget.utilization <= 1.0 ? 'var(--green)' : (budget.utilization <= 1.2 ? 'var(--yellow)' : 'var(--hot)');
+      let bHtml = '';
+      bHtml += '<div class="stat-grid">';
+      bHtml += '<div class="stat"><div class="label">Current</div><div class="value">' + budget.current + '</div></div>';
+      bHtml += '<div class="stat"><div class="label">Cap</div><div class="value">' + budget.max + '</div></div>';
+      bHtml += '<div class="stat"><div class="label">Over by</div><div class="value" style="color:' + (budget.over > 0 ? 'var(--hot)' : 'var(--green)') + '">' + budget.over + '</div></div>';
+      bHtml += '<div class="stat"><div class="label">Projected</div><div class="value">' + budget.projected + '</div></div>';
+      bHtml += '</div>';
+      bHtml += '<div class="pbar" title="budget utilization"><div class="seg" style="background:' + utilColor + ';width:' + utilPct + '%"></div></div>';
+      bHtml += '<div style="font-size:11px;color:var(--muted);margin-top:4px">' + utilPct + '% utilized';
+      if (budget.unfixable) bHtml += ' · <span style="color:var(--hot)">all remaining skills are high-priority</span>';
+      bHtml += '</div>';
+      if (budget.suggestions.length === 0) {
+        bHtml += '<div class="empty">no suggestions — under budget</div>';
+      } else {
+        bHtml += '<table style="margin-top:8px"><thead><tr><th>Skill</th><th>Pri</th><th>Tokens</th><th>Density</th><th>Action</th></tr></thead><tbody>';
+        for (const s of budget.suggestions.slice(0, 10)) {
+          bHtml += '<tr><td>' + escape(s.id) + '</td><td>' + s.currentPriority + '</td><td>' + s.currentTokens + '</td><td>' + s.valueDensity + '</td><td>' + s.action + '</td></tr>';
+        }
+        bHtml += '</tbody></table>';
+        bHtml += '<div style="font-size:10px;color:var(--muted);margin-top:4px">run <code>meta-skills budget --max-tokens ' + budget.max + ' --write</code> to apply</div>';
+      }
+      $('budget-body').innerHTML = bHtml;
     }
   } catch (e) {
     $('meta').textContent = 'error: ' + e.message;
