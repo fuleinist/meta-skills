@@ -324,6 +324,32 @@ await test('GET /api/bundles returns bundles', async () => {
   cleanup(dir);
 });
 
+await test('GET /api/budget returns budget panel (v1.7)', async () => {
+  const dir = makeTempDir();
+  fs.writeFileSync(path.join(dir, 'global.json'), JSON.stringify(sampleIndex));
+  serverHandle = await startServer({ port: 0, globalJson: path.join(dir, 'global.json'), logDir: dir });
+  // Default cap (500) — should return a valid budget panel
+  const body = await httpGet(serverHandle.port, '/api/budget');
+  const j = JSON.parse(body);
+  assert.equal(j.max, 500);
+  assert.ok(typeof j.current === 'number');
+  assert.ok(typeof j.utilization === 'number');
+  assert.ok(Array.isArray(j.suggestions));
+  // Custom cap via ?max=1 — should always trigger suggestions or unfixable
+  const body2 = await httpGet(serverHandle.port, '/api/budget?max=1');
+  const j2 = JSON.parse(body2);
+  assert.equal(j2.max, 1);
+  assert.ok(j2.suggestions.length > 0 || j2.unfixable, 'cap=1 must trigger suggestions or unfixable');
+  // Custom cap via ?max=10000 — should never trigger suggestions
+  const body3 = await httpGet(serverHandle.port, '/api/budget?max=10000');
+  const j3 = JSON.parse(body3);
+  assert.equal(j3.suggestions.length, 0);
+  assert.equal(j3.unfixable, false);
+  await stopServer(serverHandle);
+  serverHandle = null;
+  cleanup(dir);
+});
+
 await test('GET /api/heatmap returns matrix', async () => {
   const dir = makeTempDir();
   fs.writeFileSync(path.join(dir, 'global.json'), JSON.stringify(sampleIndex));

@@ -363,6 +363,50 @@ export function atomicWriteJson(targetPath, data) {
 }
 
 // --------------------------------------------------------------------------
+// Dashboard integration (sync helper for src/dashboard.mjs)
+// --------------------------------------------------------------------------
+
+/**
+ * Build a JSON-friendly budget panel payload for the dashboard.
+ * Wraps generateSuggestions + totalActiveTokens so dashboard.mjs can
+ * call it synchronously without re-implementing the math.
+ *
+ * @param {object} index - parsed global.json (with skills array)
+ * @param {object} [options]
+ * @param {number} [options.maxTokens=500] - budget cap
+ * @param {'demote'|'archive'} [options.action='demote']
+ * @returns {{
+ *   max: number,
+ *   current: number,
+ *   projected: number,
+ *   over: number,
+ *   utilization: number,
+ *   unfixable: boolean,
+ *   action: 'demote'|'archive',
+ *   suggestions: Array<{id, action, currentPriority, newPriority, currentTokens, valueDensity, reason}>,
+ * }}
+ */
+export function buildBudgetPanel(index, options = {}) {
+  const maxTokens = typeof options.maxTokens === 'number' ? options.maxTokens : DEFAULT_MAX_TOKENS;
+  const action = options.action === 'archive' ? 'archive' : 'demote';
+
+  const skills = index && Array.isArray(index.skills) ? index.skills : [];
+  const current = totalActiveTokens(skills);
+  const result = generateSuggestions(skills, { maxTokens, action });
+
+  return {
+    max: maxTokens,
+    current,
+    projected: result.projectedTotal,
+    over: Math.max(0, current - maxTokens),
+    utilization: maxTokens > 0 ? round4(current / maxTokens) : 0,
+    unfixable: result.unfixable,
+    action,
+    suggestions: result.suggestions,
+  };
+}
+
+// --------------------------------------------------------------------------
 // CLI (called by src/cli.mjs)
 // --------------------------------------------------------------------------
 

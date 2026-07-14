@@ -1,9 +1,9 @@
 ---
 name: meta-skills
-description: A lightweight, self-improving JSON index that lets agents discover all available skills in ~150 tokens. Scans global agent configs (Claude Code, Cursor, OpenClaw, Hermes) and project files to generate a fast-reference skill catalog with usage tracking, auto-promotion, background maintenance, failure-based patch proposals, a local web dashboard, agent config injection, and skill quality scoring.
+description: A lightweight, self-improving JSON index that lets agents discover all available skills in ~150 tokens. Scans global agent configs (Claude Code, Cursor, OpenClaw, Hermes) and project files to generate a fast-reference skill catalog with usage tracking, auto-promotion, background maintenance, failure-based patch proposals, a local web dashboard, agent config injection, skill quality scoring, and a token budget optimizer.
 metadata:
   author: community
-  version: "1.6.0"
+  version: "1.7.0"
   schema: https://meta-skills.dev/schema/v1.json
 ---
 
@@ -13,7 +13,7 @@ metadata:
 
 Meta-Skills solves the **skill discovery problem**: agents accumulate dozens of skills but have no lightweight way to know what's available without loading every `SKILL.md` upfront. This wastes tokens and causes agents to miss relevant capabilities.
 
-The meta-skills pattern creates a **JSON index** — a table of contents for all skills — that agents read in ~150 tokens. Each entry answers two questions: *"When should I use this?"* and *"Why does it exist?"* The full `SKILL.md` is loaded **only on demand** when the agent decides to activate a skill.
+The meta-skills pattern creates a **JSON index** - a table of contents for all skills - that agents read in ~150 tokens. Each entry answers two questions: *"When should I use this?"* and *"Why does it exist?"* The full `SKILL.md` is loaded **only on demand** when the agent decides to activate a skill.
 
 ## Architecture
 
@@ -35,8 +35,8 @@ The meta-skills pattern creates a **JSON index** — a table of contents for all
   "skills": [
     {
       "id": "skill-name",
-      "when": "short trigger description — when to activate this skill",
-      "why": "one-line rationale — what value this skill provides",
+      "when": "short trigger description - when to activate this skill",
+      "why": "one-line rationale - what value this skill provides",
       "path": "relative or absolute path to SKILL.md",
       "priority": "high | medium | low",
       "usage_count": 0,
@@ -51,25 +51,25 @@ The meta-skills pattern creates a **JSON index** — a table of contents for all
 }
 ```
 
-Each entry is **minimal by design** — name + when + why + path. The agent uses `when` to decide relevance, loads the full skill only when matched.
+Each entry is **minimal by design** - name + when + why + path. The agent uses `when` to decide relevance, loads the full skill only when matched.
 
 ## Implementation Plan
 
-### Phase 1: Scanner (v0.1–v0.2)
+### Phase 1: Scanner (v0.1-v0.2)
 
-**Global Scanner** — detect skills from all agent config directories:
+**Global Scanner** - detect skills from all agent config directories:
 
-1. Scan `~/.claude/skills/*/SKILL.md` — extract frontmatter `name` + `description`
-2. Scan `~/.cursor/skills/*/SKILL.md` — same extraction
+1. Scan `~/.claude/skills/*/SKILL.md` - extract frontmatter `name` + `description`
+2. Scan `~/.cursor/skills/*/SKILL.md` - same extraction
 3. Scan OpenClaw skill directories (configurable path)
 4. Scan Hermes skill directories
-5. Merge into `global.json` — deduplicate by `name`, flag conflicts
+5. Merge into `global.json` - deduplicate by `name`, flag conflicts
 
-**Project Scanner** — extract local context:
+**Project Scanner** - extract local context:
 
-1. Read `README.md` — detect tech stack, project purpose
-2. Read `CLAUDE.md` / `.cursorrules` — extract existing skill references
-3. Scan `package.json`, `pyproject.toml`, `Cargo.toml`, `Gemfile` — detect languages/frameworks
+1. Read `README.md` - detect tech stack, project purpose
+2. Read `CLAUDE.md` / `.cursorrules` - extract existing skill references
+3. Scan `package.json`, `pyproject.toml`, `Cargo.toml`, `Gemfile` - detect languages/frameworks
 4. Scan `.meta-skills/` directory for existing local skills
 5. Generate `project.json` with context + any project-specific skills
 
@@ -129,8 +129,8 @@ Each entry is **minimal by design** — name + when + why + path. The agent uses
 
 This agent uses meta-skills for fast skill discovery.
 Always read these files at startup:
-- `~/.meta-skills/global.json` — all globally available skills
-- `.meta-skills/project.json` — project-specific skills and context
+- `~/.meta-skills/global.json` - all globally available skills
+- `.meta-skills/project.json` - project-specific skills and context
 
 Each entry tells you WHEN and WHY to use a skill.
 Load the full SKILL.md only when you decide to activate it.
@@ -138,12 +138,12 @@ Load the full SKILL.md only when you decide to activate it.
 
 ## Key Design Decisions
 
-1. **JSON over YAML/Markdown** — parsable by any agent, machine-writable, schema-validatable, diff-friendly
-2. **~150 tokens for 20 skills** — each entry is ~7 tokens (id + when + why + path + priority)
-3. **Usage-driven promotion** — skills prove their value through actual use, not static configuration
-4. **Stale detection, not deletion** — archive unused skills instead of removing them (agents change, projects evolve)
-5. **Two-level hierarchy** — global skills are always available; project skills provide local context
-6. **Self-contained** — no external dependencies, no runtime, just a JSON file + a simple scanner script
+1. **JSON over YAML/Markdown** - parsable by any agent, machine-writable, schema-validatable, diff-friendly
+2. **~150 tokens for 20 skills** - each entry is ~7 tokens (id + when + why + path + priority)
+3. **Usage-driven promotion** - skills prove their value through actual use, not static configuration
+4. **Stale detection, not deletion** - archive unused skills instead of removing them (agents change, projects evolve)
+5. **Two-level hierarchy** - global skills are always available; project skills provide local context
+6. **Self-contained** - no external dependencies, no runtime, just a JSON file + a simple scanner script
 
 ## Edge Cases
 
@@ -158,11 +158,11 @@ Load the full SKILL.md only when you decide to activate it.
 
 ## Future Ideas
 
-- **Skill bundles** — groups of skills that work well together (e.g., "web-dev" = react-skill + css-skill + api-testing-skill)
-- **Cross-agent sync** — share usage patterns across Claude Code, Cursor, and OpenClaw agents
-- **Skill recommendations** — "You often use `git-commits` with `code-review` — would you like to bundle them?"
-- **Meta-skills dashboard** — web UI showing skill usage, stale skills, discovery stats
-- **Plugin for IDEs** — show available skills in-editor without leaving the codebase
+- **Skill bundles** - groups of skills that work well together (e.g., "web-dev" = react-skill + css-skill + api-testing-skill)
+- **Cross-agent sync** - share usage patterns across Claude Code, Cursor, and OpenClaw agents
+- **Skill recommendations** - "You often use `git-commits` with `code-review` - would you like to bundle them?"
+- **Meta-skills dashboard** - web UI showing skill usage, stale skills, discovery stats
+- **Plugin for IDEs** - show available skills in-editor without leaving the codebase
 
 ## Phase 6: Failure-Based Auto-Improvement (v1.3)
 
@@ -172,13 +172,13 @@ Load the full SKILL.md only when you decide to activate it.
 
 ### Failure Analysis Pipeline
 
-1. **Scan logs** — `~/.meta-skills/logs/*.jsonl`, filter `outcome=failure`, group by `skill_id`
-2. **Pattern detection** — classify failures:
+1. **Scan logs** - `~/.meta-skills/logs/*.jsonl`, filter `outcome=failure`, group by `skill_id`
+2. **Pattern detection** - classify failures:
    - **Vague trigger** → tighten `when:` field (e.g., "Use when task involves X" instead of "general")
    - **Short content** → add `## Anti-Patterns` section with common mistake patterns
    - **Heterogeneous failures (≥5)** → suggest splitting into sub-skills (`{name}-core`, `{name}-advanced`)
    - **Generic** → append `## Improvement Notes` with review checklist
-3. **Proposal file** — write `~/.meta-skills/proposals/<skill-id>-<timestamp>.patch` containing:
+3. **Proposal file** - write `~/.meta-skills/proposals/<skill-id>-<timestamp>.patch` containing:
    - `meta`: skill id, generation timestamp, patch type, summary, version
    - `diff`: unified diff against the current `SKILL.md`
 
@@ -200,7 +200,7 @@ meta-skills maintain --from-failures [--dry-run]
 
 ### Human-in-the-Loop Design
 
-Auto-PR opens the proposal as a PR for review — agents do not auto-merge. This preserves the core meta-skills principle: **agents propose, humans decide**.
+Auto-PR opens the proposal as a PR for review - agents do not auto-merge. This preserves the core meta-skills principle: **agents propose, humans decide**.
 
 ### Use Cases
 
@@ -214,20 +214,20 @@ Auto-PR opens the proposal as a PR for review — agents do not auto-merge. This
 
 **The fix:** A read-only local web dashboard that boots a Node http server bound to `127.0.0.1` (loopback only) and serves a single-page HTML+CSS+vanilla-JS app with five panels:
 
-1. **Summary** — total skills, stale count, total activations, suggested bundles
-2. **Usage Heatmap** — skills x days matrix for the last N days (default 7), color-coded by activation count
-3. **Stale Skills** — skills not used in 30+ days (configurable via `?days=`)
-4. **Priority Distribution** — counts of high/medium/low/unset priorities with a proportional bar
-5. **Co-occurrence** — skill pairs that activated within a 5-minute window (configurable via `?window=`) over the last 30 days
-6. **Suggested Bundles** — list view of `suggested_bundles` from `global.json`
+1. **Summary** - total skills, stale count, total activations, suggested bundles
+2. **Usage Heatmap** - skills x days matrix for the last N days (default 7), color-coded by activation count
+3. **Stale Skills** - skills not used in 30+ days (configurable via `?days=`)
+4. **Priority Distribution** - counts of high/medium/low/unset priorities with a proportional bar
+5. **Co-occurrence** - skill pairs that activated within a 5-minute window (configurable via `?window=`) over the last 30 days
+6. **Suggested Bundles** - list view of `suggested_bundles` from `global.json`
 
 ### Design constraints
 
-- **Zero new dependencies** — uses only Node.js stdlib (`node:http`, `node:fs`, `node:path`, `node:os`)
-- **Read-only** — the dashboard never writes to `global.json`, only reads
-- **Local-only binding** — refuses to bind to non-loopback addresses (security: dashboard data is private)
-- **Auto-shutdown on SIGINT/SIGTERM** — `ctrl-c` cleanly closes the server
-- **Auto-refresh every 30s** — clients poll `/api/*` JSON endpoints
+- **Zero new dependencies** - uses only Node.js stdlib (`node:http`, `node:fs`, `node:path`, `node:os`)
+- **Read-only** - the dashboard never writes to `global.json`, only reads
+- **Local-only binding** - refuses to bind to non-loopback addresses (security: dashboard data is private)
+- **Auto-shutdown on SIGINT/SIGTERM** - `ctrl-c` cleanly closes the server
+- **Auto-refresh every 30s** - clients poll `/api/*` JSON endpoints
 
 ### CLI
 
@@ -258,10 +258,10 @@ meta-skills dashboard --global-json /path/to/global.json --log-dir /path/to/logs
 
 ### Use Cases
 
-- **Skill curation** — see which skills are dead weight and candidates for archival
-- **Pattern discovery** — co-occurrence reveals which skills work well together (bundling candidates)
-- **Activity monitoring** — heatmap shows daily engagement without leaving the terminal
-- **Onboarding** — new users can `meta-skills dashboard` and see their full skill landscape in 30 seconds
+- **Skill curation** - see which skills are dead weight and candidates for archival
+- **Pattern discovery** - co-occurrence reveals which skills work well together (bundling candidates)
+- **Activity monitoring** - heatmap shows daily engagement without leaving the terminal
+- **Onboarding** - new users can `meta-skills dashboard` and see their full skill landscape in 30 seconds
 
 ## Phase 8: Agent Config Injection (v1.5)
 
@@ -273,42 +273,150 @@ Detect and inject meta-skills scan instructions into agent configuration files:
 - Scans the target directory (default: `process.cwd()`) for 5 canonical config file specs
 - Project-level: `CLAUDE.md`, `.cursorrules`, `AGENTS.md`
 - Global-only: `~/.config/gemini-cli/config.yaml`, `~/.config/gemini-cli/config.json`
-- Parses each file for existing `<!-- meta-skills:start --> … <!-- meta-skills:end -->` blocks (markdown)
-  or `# meta-skills:start … # meta-skills:end` blocks (text/YAML) or `_meta_skills` key (JSON)
+- Parses each file for existing `<!-- meta-skills:start --> ... <!-- meta-skills:end -->` blocks (markdown)
+  or `# meta-skills:start ... # meta-skills:end` blocks (text/YAML) or `_meta_skills` key (JSON)
 - Reports `has block`, `no block`, or `error` per file
 
 ### Write-back
 
-- **Created** — file doesn't exist → creates it with the block
-- **Updated** — block exists → replaces in-place, preserving surrounding content
-- **Appended** — file exists without block → appends at end
-- **Skipped** — parse error (e.g. unterminated block) → refuses to overwrite unless `--force`
-- **Removed** — `meta-skills agent-config remove` strips the block
+- **Created** - file doesn't exist → creates it with the block
+- **Updated** - block exists → replaces in-place, preserving surrounding content
+- **Appended** - file exists without block → appends at end
+- **Skipped** - parse error (e.g. unterminated block) → refuses to overwrite unless `--force`
+- **Removed** - `meta-skills agent-config remove` strips the block
 - All operations support `--dry-run` for preview
 
 ## Phase 9: Skill Quality Scoring (v1.6)
 
-Heuristic scoring of SKILL.md files across 4 dimensions — no external API calls.
+Heuristic scoring of SKILL.md files across 4 dimensions - no external API calls.
+
+## Phase 10: Token Budget Optimizer (v1.7)
+
+Greedy demote/archive of lowest value-density skills to fit a configurable
+token cap. The active set is the high+medium priority skills the agent
+loads every turn; if it bloats past the cap, this command picks the
+lowest-priority victims to demote or archive.
+
+### Value density
+
+`density = (priority_weight × (1 + ln(1 + usage_count)) × quality_multiplier) / estimated_tokens`
+
+- `priority_weight`: high=3.0, medium=2.0, low=1.0
+- `usage_count` uses log-curve: 0→1, 10→3.4, 100→5.6 (diminishing returns)
+- `quality_multiplier`: 1.0 default; if `--use-quality` is set, scales by
+  v1.6 overall score / 100, clamped to [0.1, 1.5] (Anthropic: don't zero
+  out a skill, the agent still has the option to load it manually)
+- `estimated_tokens`: chars/4 of the JSON-serialized index entry
+  (id, when, why, path, priority). Strips usage_count + last_used as
+  internal telemetry. Optionally adds SKILL.md file content cost
+  (`--include-skill-md`).
+
+### CLI
+
+```bash
+# Show suggestions (default --dry-run, default cap 500)
+meta-skills budget
+
+# Custom cap
+meta-skills budget --max-tokens 200
+
+# Apply demotions (priority → low). --write is required for non-dry-run.
+meta-skills budget --max-tokens 200 --write
+
+# Or apply ARCHIVE (move to archived_skills list, recoverable)
+meta-skills budget --max-tokens 200 --archive
+
+# JSON output for scripting
+meta-skills budget --max-tokens 200 --json
+
+# Weight by v1.6 quality scores (high-quality skills protected)
+meta-skills budget --use-quality
+
+# Include full SKILL.md file cost in token estimate
+meta-skills budget --include-skill-md
+```
+
+### JSON output
+
+```json
+{
+  "max": 200,
+  "current": 612,
+  "projected": 187,
+  "over": 412,
+  "utilization": 3.06,
+  "unfixable": false,
+  "action": "demote",
+  "dryRun": true,
+  "skillMdIncluded": false,
+  "qualityWeighted": false,
+  "suggestions": [
+    {
+      "id": "old-skill",
+      "action": "demote",
+      "currentPriority": "low",
+      "newPriority": "low",
+      "currentTokens": 12,
+      "valueDensity": 0.04,
+      "reason": "demote: priority=low, used 0x, density=0.04 is lowest"
+    }
+  ]
+}
+```
+
+### Design
+
+- **Heuristic token estimation** - chars/4 (OpenAI standard). No
+  tokenizer dep, deterministic, fast.
+- **Greedy sort** - O(n log n). Same input always produces same output
+  (no LLM in the loop, no randomness).
+- **High-priority protected** - even at 0 usage, a high-priority skill
+  is never a demote candidate. The agent's intent is preserved.
+- **Apply is opt-in** - `--dry-run` is the default. You must pass
+  `--write` (for demote) or `--archive` (for archive) to mutate
+  global.json. Atomic write via temp+rename.
+- **Archived skills are recoverable** - moves to top-level
+  `archived_skills: []` array with `priority: "archived"`. Use
+  `meta-skills maintain` to inspect/restore.
+- **Read-only dashboard endpoint** - `/api/budget` returns the same
+  shape as `--json`; the dashboard panel renders it without writing
+  anything back.
+
+### Dashboard
+
+`GET /api/budget?max=500` returns the JSON above. The dashboard HTML
+adds a "Token Budget (v1.7)" panel showing current vs cap, top-3
+over-budget candidates, and a `meta-skills budget --write` reminder.
+
+### Inspired by
+
+- Progressive disclosure research (10-tool accuracy ceiling)
+- Anthropic 150-token meta-skills target
+- EvoSkill value-density evaluation
+- v1.6 quality scoring (`--use-quality` integration)
+- v0.4 self-improve demotion rules
+
+## References
 
 ### Scoring Dimensions
 
 | Dimension | Weight | What It Checks |
 |-----------|--------|----------------|
-| **Readability** | 25% | Frontmatter, description, section structure, length (50–500 lines), code examples, links |
+| **Readability** | 25% | Frontmatter, description, section structure, length (50-500 lines), code examples, links |
 | **Trigger Precision** | 30% | `when` field exists, length > 20 chars, trigger words present, no generic words, > 2 meaningful words |
 | **Instruction Clarity** | 25% | Numbered steps, code blocks, examples, anti-patterns/cautions, output descriptions, references |
 | **Token Efficiency** | 20% | Meaningful line ratio, no commented-out code, no ASCII art, avg line length < 100, no duplicate sections |
 
-Each dimension scores 0–100. Overall = weighted average (0–100).
+Each dimension scores 0-100. Overall = weighted average (0-100).
 
 ### Flags
 
 Skills below 40 in any dimension get flagged:
-- `low-readability` — frontmatter missing or file too short/long
-- `vague-trigger` — `when` field missing, too short, or uses generic words
-- `unclear-instructions` — no numbered steps, no code blocks, no examples
-- `inefficient` — commented code, ASCII art, poor line ratio
-- `critical` — overall score < 30
+- `low-readability` - frontmatter missing or file too short/long
+- `vague-trigger` - `when` field missing, too short, or uses generic words
+- `unclear-instructions` - no numbered steps, no code blocks, no examples
+- `inefficient` - commented code, ASCII art, poor line ratio
+- `critical` - overall score < 30
 
 ### CLI
 
@@ -343,20 +451,20 @@ meta-skills agent-config remove
 
 ### Design
 
-- **Zero external API calls** — pure heuristic analysis of local files
-- **No new dependencies** — uses only Node.js stdlib
+- **Zero external API calls** - pure heuristic analysis of local files
+- **No new dependencies** - uses only Node.js stdlib
 - **21 tests** covering all 4 dimensions + scoreSkill + scoreAll + edge cases
 - **Inspired by:** Anthropic skill authoring best practices (concise, degrees of freedom, 500-line rule, trigger precision)
 
-- **Read-only detection** — `parseForBlock()` never writes; returns `{ exists, hasBlock, blockRange, blockText, content, error }`
-- **Atomic write** — `writeBlock()` reads, splices, writes; never partial
-- **Single source of truth** — `blockContent()` returns the canonical instruction string; used by both detection and write-back
-- **Zero new dependencies** — uses only Node.js stdlib (`node:fs`, `node:os`, `node:path`)
-- **30 tests** — 17 detection + 13 write-back (create, update, append, remove, dry-run, force, injectAll)
+- **Read-only detection** - `parseForBlock()` never writes; returns `{ exists, hasBlock, blockRange, blockText, content, error }`
+- **Atomic write** - `writeBlock()` reads, splices, writes; never partial
+- **Single source of truth** - `blockContent()` returns the canonical instruction string; used by both detection and write-back
+- **Zero new dependencies** - uses only Node.js stdlib (`node:fs`, `node:os`, `node:path`)
+- **30 tests** - 17 detection + 13 write-back (create, update, append, remove, dry-run, force, injectAll)
 
 ## References
 
-- [Agent Skills Specification](https://agentskills.io/specification.md) — The SKILL.md standard
-- [Skill Discovery Pattern](https://agents.kour.me/skill-discovery/) — Progressive disclosure for agent capabilities
-- [Library Meta-Skill](https://claudefa.st/blog/guide/mechanics/library-meta-skill) — Centralized skill distribution
-- [EvoSkill: Automated Skill Discovery](https://arxiv.org/html/2603.02766v1) — Self-evolving skill frameworks
+- [Agent Skills Specification](https://agentskills.io/specification.md) - The SKILL.md standard
+- [Skill Discovery Pattern](https://agents.kour.me/skill-discovery/) - Progressive disclosure for agent capabilities
+- [Library Meta-Skill](https://claudefa.st/blog/guide/mechanics/library-meta-skill) - Centralized skill distribution
+- [EvoSkill: Automated Skill Discovery](https://arxiv.org/html/2603.02766v1) - Self-evolving skill frameworks

@@ -671,3 +671,54 @@ test('cmdBudget: --use-quality applies v1.6 scores as multiplier (no crash)', as
   }
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
+
+// ---------------------------------------------------------------------------
+// AC7: Dashboard integration via buildBudgetPanel
+// ---------------------------------------------------------------------------
+
+import { buildBudgetPanel } from './budget-optimizer.mjs';
+
+test('buildBudgetPanel: returns JSON-friendly shape for /api/budget', () => {
+  const index = {
+    skills: [SKILL_HIGH_USED, SKILL_MEDIUM_USED, SKILL_LOW_UNUSED],
+  };
+  const panel = buildBudgetPanel(index, { maxTokens: 100 });
+  assert.equal(panel.max, 100);
+  assert.ok(panel.current > 0);
+  assert.ok(typeof panel.utilization === 'number');
+  assert.ok(Array.isArray(panel.suggestions));
+  assert.equal(panel.action, 'demote');
+});
+
+test('buildBudgetPanel: action=archive emits archive suggestions', () => {
+  const index = { skills: [SKILL_HIGH_USED, SKILL_LOW_UNUSED, SKILL_LOW_ONCE] };
+  const panel = buildBudgetPanel(index, { maxTokens: 50, action: 'archive' });
+  if (panel.suggestions.length > 0) {
+    for (const s of panel.suggestions) {
+      assert.equal(s.action, 'archive');
+    }
+  }
+});
+
+test('buildBudgetPanel: under budget returns empty suggestions', () => {
+  const index = { skills: [SKILL_LOW_UNUSED] };
+  const panel = buildBudgetPanel(index, { maxTokens: 10000 });
+  assert.equal(panel.suggestions.length, 0);
+  assert.equal(panel.unfixable, false);
+});
+
+test('buildBudgetPanel: empty skills array returns zeros', () => {
+  const panel = buildBudgetPanel({ skills: [] });
+  assert.equal(panel.current, 0);
+  assert.equal(panel.suggestions.length, 0);
+});
+
+test('buildBudgetPanel: unfixable=true when only high-priority skills remain over cap', () => {
+  const skills = [
+    { ...SKILL_HIGH_USED, id: 'h1', usage_count: 100 },
+    { ...SKILL_HIGH_USED, id: 'h2', usage_count: 50 },
+  ];
+  const panel = buildBudgetPanel({ skills }, { maxTokens: 1 });
+  assert.equal(panel.unfixable, true);
+  assert.equal(panel.suggestions.length, 0);
+});
