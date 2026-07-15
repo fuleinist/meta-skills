@@ -21,6 +21,8 @@ import {
   buildCooccurrence,
   buildHeatmap,
   buildBundles,
+  buildBundleDetail,
+  buildRecipesList,
   startServer,
   stopServer,
   getHtml,
@@ -62,8 +64,8 @@ const sampleIndex = {
   ],
   stale: [],
   suggested_bundles: [
-    { name: 'core', skills: ['a', 'b'], description: 'core skills' },
-    { name: 'ops',  skills: ['b', 'c'] },
+    { skills: ['a', 'b'], cooccurrenceDays: 5 },
+    { skills: ['b', 'c'], cooccurrenceDays: 3 },
   ],
 };
 
@@ -151,10 +153,14 @@ await test('buildHeatmap sorts by total desc', () => {
 await test('buildBundles returns suggested bundles', () => {
   const bundles = buildBundles(sampleIndex);
   assert.equal(bundles.length, 2);
-  assert.equal(bundles[0].name, 'core');
+  // v1.8: auto bundles are named by skills.join('+'); v0.4 fixture had explicit
+  // names but the production self-improve.mjs never set them.
+  assert.equal(bundles[0].name, 'a+b');
   assert.deepEqual(bundles[0].skills, ['a', 'b']);
-  assert.equal(bundles[0].description, 'core skills');
-  assert.equal(bundles[1].description, ''); // missing desc defaults to ''
+  assert.equal(bundles[0].description, '');
+  assert.equal(bundles[0].source, 'auto');
+  assert.equal(bundles[0].cooccurrenceDays, 5);
+  assert.equal(bundles[1].name, 'b+c');
 });
 
 // ---- File I/O tests --------------------------------------------------------
@@ -319,6 +325,110 @@ await test('GET /api/bundles returns bundles', async () => {
   const body = await httpGet(serverHandle.port, '/api/bundles');
   const j = JSON.parse(body);
   assert.equal(j.bundles.length, 2);
+  await stopServer(serverHandle);
+  serverHandle = null;
+  cleanup(dir);
+});
+
+// ---- v1.8: bundle detail + recipes endpoints -------------------------------
+
+await test('buildBundleDetail returns user bundle with metrics', () => {
+  const idx = {
+    skills: [
+      { id: 'a', when: 'aaa', why: 'a', path: '/p', priority: 'high' },
+      { id: 'b', when: 'bbb', why: 'b', path: '/q', priority: 'medium' },
+    ],
+    bundles: [{
+      name: 'ab-bundle', description: 'a+b', skills: ['a', 'b'],
+      tags: ['core'], createdAt: '2026-07-01T00:00:00.000Z', updatedAt: '2026-07-01T00:00:00.000Z',
+    }],
+    suggested_bundles: [],
+  };
+  const detail = buildBundleDetail(idx, 'ab-bundle');
+  assert.ok(detail);
+  assert.equal(detail.bundle.name, 'ab-bundle');
+  assert.equal(detail.bundle.source, 'user');
+  assert.ok(detail.metrics);
+  assert.ok(detail.metrics.totalTokens > 0);
+});
+
+await test('buildBundleDetail returns null for missing bundle', () => {
+  assert.equal(buildBundleDetail({ skills: [], bundles: [], suggested_bundles: [] }, 'nope'), null);
+});
+
+await test('GET /api/bundles?include=user filters out auto bundles', async () => {
+  const dir = makeTempDir();
+  const idx = {
+    version: '1.0', generated: '2026-07-01T00:00:00+10:00', source: 'global',
+    skills: [{ id: 'a', when: 'a', why: 'a', path: '/p', priority: 'high' }],
+    bundles: [{ name: 'user-b', description: '', skills: ['a'], tags: [], createdAt: '2026-07-01T00:00:00.000Z', updatedAt: '2026-07-01T00:00:00.000Z' }],
+    suggested_bundles: [{ skills: ['a'], cooccurrenceDays: 5 }],
+  };
+  fs.writeFileSync(path.join(dir, 'global.json'), JSON.stringify(idx));
+  serverHandle = await startServer({ port: 0, globalJson: path.join(dir, 'global.json'), logDir: dir });
+  const body = await httpGet(serverHandle.port, '/api/bundles?include=user');
+  const j = JSON.parse(body);
+  assert.equal(j.include, 'user');
+  assert.equal(j.bundles.length, 1);
+  assert.equal(j.bundles[0].source, 'user');
+  await stopServer(serverHandle);
+  serverHandle = null;
+  cleanup(dir);
+});
+
+await test('GET /api/bundles/:name returns detail for known bundle', async () => {
+  const dir = makeTempDir();
+  const idx = {
+    skills: [{ id: 'a', when: 'a', why: 'a', path: '/p', priority: 'high' }],
+    bundles: [{ name: 'my-bundle', description: 'test', skills: ['a'], tags: ['t'], createdAt: '2026-07-01T00:00:00.000Z', updatedAt: '2026-07-01T00:00:00.000Z' }],
+    suggested_bundles: [],
+  };
+  fs.writeFileSync(path.join(dir, 'global.json'), JSON.stringify(idx));
+  serverHandle = await startServer({ port: 0, globalJson: path.join(dir, 'global.json'), logDir: dir });
+  const body = await httpGet(serverHandle.port, '/api/bundles/my-bundle');
+  const j = JSON.parse(body);
+  assert.equal(j.bundle.name, 'my-bundle');
+  assert.ok(j.metrics);
+  await stopServer(serverHandle);
+  serverHandle = null;
+  cleanup(dir);
+});
+
+await test('GET /api/bundles/:name returns 404 for missing bundle', async () => {
+  const dir = makeTempDir();
+  fs.writeFileSync(path.join(dir, 'global.json'), JSON.stringify({ skills: [], bundles: [], suggested_bundles: [] }));
+  serverHandle = await startServer({ port: 0, globalJson: path.join(dir, 'global.json'), logDir: dir });
+  const body = await httpGet(serverHandle.port, '/api/bundles/nope');
+  assert.equal(body, 'Not Found');
+  await stopServer(serverHandle);
+  serverHandle = null;
+  cleanup(dir);
+});
+
+await test('buildRecipesList returns [] when recipes dir does not exist', () => {
+  const r = buildRecipesList(path.join(os.tmpdir(), 'definitely-not-a-recipes-dir-' + Date.now()));
+  assert.deepEqual(r.recipes, []);
+});
+
+await test('buildRecipesList reads .recipe and .json files', () => {
+  const dir = makeTempDir();
+  fs.writeFileSync(path.join(dir, 'flow1.recipe'), '# name: flow1\nstep a: x\nstep b: y\n');
+  fs.writeFileSync(path.join(dir, 'flow2.json'), JSON.stringify({ name: 'flow2', steps: [{ skill: 'a' }] }));
+  fs.writeFileSync(path.join(dir, 'README.md'), 'should be ignored');
+  const r = buildRecipesList(dir);
+  assert.equal(r.recipes.length, 2);
+  assert.ok(r.recipes.some(x => x.name === 'flow1' && x.format === 'recipe'));
+  assert.ok(r.recipes.some(x => x.name === 'flow2' && x.format === 'json'));
+  cleanup(dir);
+});
+
+await test('GET /api/recipes returns empty list when no recipes dir', async () => {
+  const dir = makeTempDir();
+  fs.writeFileSync(path.join(dir, 'global.json'), JSON.stringify(sampleIndex));
+  serverHandle = await startServer({ port: 0, globalJson: path.join(dir, 'global.json'), logDir: dir });
+  const body = await httpGet(serverHandle.port, '/api/recipes');
+  const j = JSON.parse(body);
+  assert.deepEqual(j.recipes, []);
   await stopServer(serverHandle);
   serverHandle = null;
   cleanup(dir);

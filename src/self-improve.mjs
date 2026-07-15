@@ -223,6 +223,9 @@ function main(options) {
   index.stale = stale;
   index.generated = new Date().toISOString();
   index.suggested_bundles = bundles.slice(0, 10);
+  // Preserve user-defined bundles (v1.8). They live in index.bundles and are
+  // managed by `meta-skills bundle create/delete` — self-improve only
+  // refreshes the auto-detected suggested_bundles list.
 
   fs.writeFileSync(outPath, JSON.stringify(index, null, 2) + '\n', 'utf-8');
   console.log(`\n✓ self-improvement applied to ${outPath}`);

@@ -396,6 +396,150 @@ over-budget candidates, and a `meta-skills budget --write` reminder.
 - v1.6 quality scoring (`--use-quality` integration)
 - v0.4 self-improve demotion rules
 
+## Phase 11: Skill Bundles & Recipes (v1.8)
+
+**The problem:** Meta-skills has `suggested_bundles` (auto-detected from
+co-occurrence, written by v0.4 self-improve) but no way to create
+user-defined bundles, activate bundles as a unit, or chain skills into
+multi-step recipes.
+
+**The fix:** Two first-class concepts.
+
+### Bundles
+
+A **bundle** is a named group of skill IDs that work well together.
+
+Two flavors coexist (kept separate so user bundles survive auto-resets):
+
+| Flavor | Location | Source | Mutable? |
+|--------|----------|--------|----------|
+| User bundle | `index.bundles[]` | `meta-skills bundle create` | yes (CRUD) |
+| Auto bundle | `index.suggested_bundles[]` | `meta-skills improve` (co-occurrence) | no (read-only) |
+
+Schema (user bundle):
+
+```json
+{
+  "name": "web-dev",
+  "description": "frontend stack",
+  "skills": ["react-skill", "css-skill", "api-testing-skill"],
+  "tags": ["frontend", "spa"],
+  "createdAt": "2026-07-15T10:00:00.000Z",
+  "updatedAt": "2026-07-15T10:00:00.000Z"
+}
+```
+
+Name must match `^[a-z0-9][a-z0-9-]{0,63}$` (slug-shaped).
+
+### CLI
+
+```bash
+# Create a user bundle
+meta-skills bundle create web-dev \
+  --skill react-skill \
+  --skill css-skill \
+  --desc "frontend stack" \
+  --tag frontend
+
+# List (text or JSON)
+meta-skills bundle list
+meta-skills bundle list --include user --json
+meta-skills bundle list --tag frontend
+
+# Show with metrics (tokens + avg quality from v1.6)
+meta-skills bundle show web-dev
+
+# Delete a user bundle (auto bundles are immutable)
+meta-skills bundle delete web-dev
+
+# Activate: write activation records for all skills (dry-run by default)
+meta-skills bundle activate web-dev
+meta-skills bundle activate web-dev --write
+meta-skills bundle activate web-dev --json
+
+# Suggest: re-run co-occurrence detection
+meta-skills bundle suggest --min-days 3
+```
+
+### Recipes
+
+A **recipe** is a multi-step workflow that chains skill activations.
+Two file formats (auto-detected by extension):
+
+**`.recipe`** — simple YAML-style (zero new deps):
+
+```yaml
+# name: release-flow
+# description: cut a release from validated code
+
+step validate: run tests, lint, type-check
+step changelog: generate changelog
+step commit: commit with conventional message
+```
+
+**`.json`** — native JSON for tooling:
+
+```json
+{
+  "name": "release-flow",
+  "description": "cut a release from validated code",
+  "steps": [
+    { "skill": "validate", "description": "run tests", "on_failure": "stop" },
+    { "skill": "changelog", "on_failure": "continue" },
+    { "skill": "commit", "on_failure": "stop" }
+  ]
+}
+```
+
+Each step writes a usage log entry `{skill, timestamp, outcome, source:
+'recipe', recipe: <name>, step: <n>}` to the standard logs directory.
+
+### CLI
+
+```bash
+# Scaffold a starter recipe
+meta-skills recipe init release-flow
+
+# Validate (checks skill IDs exist in index)
+meta-skills recipe validate release-flow.recipe
+
+# Run (dry-run by default)
+meta-skills recipe run release-flow.recipe
+meta-skills recipe run release-flow.recipe --write
+meta-skills recipe run release-flow.json --continue-on-failure
+```
+
+### Dashboard integration
+
+- `/api/bundles?include=user|auto|all` — list with source filter
+- `/api/bundles/:name` — detail with metrics (tokens + avg quality)
+- `/api/recipes` — list recipes from `~/.meta-skills/recipes/`
+- Bundle panel visually distinguishes user bundles (`*`) from auto (`~`)
+
+### Cross-module integration
+
+- **Quality** (v1.6): `bundle show` includes avg quality from skill.quality_score
+- **Budget** (v1.7): `bundle show` includes total tokens via estimateIndexTokens
+- **Self-improve** (v0.4): only touches `index.suggested_bundles`; user
+  bundles in `index.bundles` are preserved untouched
+
+### Inspired by
+
+- EvoSkill skill composition — Pareto-optimized skill combinations
+- Make / Taskfile / npm scripts — multi-step workflow patterns
+- LangChain prompt-template chains — multi-step AI workflows
+- v0.4 co-occurrence — "when I do X I usually also do Y"
+- v1.6 quality + v1.7 budget — bundles inherit and aggregate per-skill signals
+
+### Constraints
+
+- Zero new npm deps (matches v1.5/v1.6/v1.7)
+- Pure regex YAML parser — no `yaml` package
+- Atomic write-back (temp + rename) for all index mutations
+- User bundles persist separately from auto-bundles (no clobber)
+- Bundle activate is idempotent — running twice produces two distinct
+  timestamped entries per skill
+
 ## References
 
 ### Scoring Dimensions
