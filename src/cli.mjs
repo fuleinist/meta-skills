@@ -33,11 +33,11 @@ const PKG = JSON.parse(fs.readFileSync(path.resolve(__dirname, '..', 'package.js
 
 // Î"Ã¶Ã‡Î"Ã¶Ã‡ Import all modules directly (no execSync) Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡
 
-let _scanner, _projectScanner, _tracker, _improver, _maintainer, _validator, _syncer, _marketplace, _failureAnalyzer, _dashboard, _agentConfig, _qualityScorer, _budgetOptimizer;
+let _scanner, _projectScanner, _tracker, _improver, _maintainer, _validator, _syncer, _marketplace, _failureAnalyzer, _dashboard, _agentConfig, _qualityScorer, _budgetOptimizer, _bundleManager, _recipeRunner;
 
 async function ensureModules() {
   if (!_scanner) {
-    const [scannerMod, projectMod, trackerMod, improveMod, maintMod, validMod, syncMod, mpMod, faMod, dashMod, acMod, qsMod, boMod] = await Promise.all([
+    const [scannerMod, projectMod, trackerMod, improveMod, maintMod, validMod, syncMod, mpMod, faMod, dashMod, acMod, qsMod, boMod, bmMod, rrMod] = await Promise.all([
       import(pathToFileURL(path.resolve(__dirname, 'global-scanner.mjs')).href),
       import(pathToFileURL(path.resolve(__dirname, 'project-scanner.mjs')).href),
       import(pathToFileURL(path.resolve(__dirname, 'usage-tracker.mjs')).href),
@@ -51,6 +51,8 @@ async function ensureModules() {
       import(pathToFileURL(path.resolve(__dirname, 'agent-config.mjs')).href),
       import(pathToFileURL(path.resolve(__dirname, 'quality-scorer.mjs')).href),
       import(pathToFileURL(path.resolve(__dirname, 'budget-optimizer.mjs')).href),
+      import(pathToFileURL(path.resolve(__dirname, 'bundle-manager.mjs')).href),
+      import(pathToFileURL(path.resolve(__dirname, 'recipe-runner.mjs')).href),
     ]);
     _scanner = scannerMod;
     _projectScanner = projectMod;
@@ -65,6 +67,8 @@ async function ensureModules() {
     _agentConfig = acMod;
     _qualityScorer = qsMod;
     _budgetOptimizer = boMod;
+    _bundleManager = bmMod;
+    _recipeRunner = rrMod;
   }
 }
 
@@ -446,6 +450,288 @@ async function cmdBudget(args) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// v1.8 — Skill Bundles & Recipes
+// ---------------------------------------------------------------------------
+
+function readGlobalJsonOrExit(args, customName) {
+  const idx = args.indexOf('--global-json');
+  const p = idx >= 0 ? path.resolve(args[idx + 1]) : path.join(os.homedir(), '.meta-skills', 'global.json');
+  if (!fs.existsSync(p)) {
+    console.error(`${customName || 'command'}: global.json not found at ${p}`);
+    process.exit(1);
+  }
+  try {
+    return { path: p, index: JSON.parse(fs.readFileSync(p, 'utf8')) };
+  } catch (err) {
+    console.error(`${customName || 'command'}: failed to parse ${p}: ${err.message}`);
+    process.exit(1);
+  }
+}
+
+async function cmdBundle(args) {
+  await ensureModules();
+  const sub = args[0];
+  const rest = args.slice(1);
+
+  if (sub === 'list') {
+    const { path: gp, index } = readGlobalJsonOrExit(rest, 'bundle list');
+    const includeIdx = rest.indexOf('--include');
+    const include = includeIdx >= 0 ? rest[includeIdx + 1] : 'all';
+    const asJson = rest.includes('--json');
+    const tagIdx = rest.indexOf('--tag');
+    const tagFilter = tagIdx >= 0 ? rest[tagIdx + 1] : null;
+
+    let bundles = _bundleManager.listBundles(index, { include });
+    if (tagFilter) {
+      bundles = bundles.filter(b => Array.isArray(b.tags) && b.tags.includes(tagFilter));
+    }
+
+    if (asJson) {
+      console.log(JSON.stringify({ bundles }, null, 2));
+    } else {
+      console.log(`# Bundles (include=${include}${tagFilter ? `, tag=${tagFilter}` : ''})`);
+      if (bundles.length === 0) {
+        console.log('  (no bundles)');
+        return;
+      }
+      for (const b of bundles) {
+        const tags = b.tags && b.tags.length ? ` [${b.tags.join(',')}]` : '';
+        const days = b.cooccurrenceDays != null ? ` (${b.cooccurrenceDays}d)` : '';
+        console.log(`  ${b.source === 'user' ? '*' : '~'} ${b.name}${days} — ${b.skills.length} skill(s): ${b.skills.join(', ')}${tags}`);
+      }
+    }
+    return;
+  }
+
+  if (sub === 'show') {
+    const name = rest[0];
+    if (!name) {
+      console.error('bundle show: bundle name required');
+      process.exit(1);
+    }
+    const { path: gp, index } = readGlobalJsonOrExit(rest, 'bundle show');
+    const asJson = rest.includes('--json');
+    const bundle = _bundleManager.getBundle(index, name);
+    if (!bundle) {
+      console.error(`bundle show: bundle "${name}" not found`);
+      process.exit(1);
+    }
+    const metrics = _bundleManager.computeBundleMetrics(index, name);
+    if (asJson) {
+      console.log(JSON.stringify({ bundle, metrics }, null, 2));
+    } else {
+      console.log(`Bundle: ${bundle.name} (${bundle.source})`);
+      console.log(`  Description: ${bundle.description || '(none)'}`);
+      console.log(`  Skills     : ${bundle.skills.join(', ')}`);
+      if (bundle.tags && bundle.tags.length) console.log(`  Tags       : ${bundle.tags.join(', ')}`);
+      if (bundle.cooccurrenceDays != null) console.log(`  Co-occurred: ${bundle.cooccurrenceDays} days`);
+      if (metrics) {
+        console.log(`  Tokens     : ${metrics.totalTokens}`);
+        if (metrics.avgQuality != null) console.log(`  Avg Quality: ${metrics.avgQuality}`);
+        if (metrics.scoreRange) console.log(`  Score Range: ${metrics.scoreRange.min}–${metrics.scoreRange.max}`);
+      }
+    }
+    return;
+  }
+
+  if (sub === 'create') {
+    const name = rest[0];
+    if (!name) {
+      console.error('bundle create: bundle name required');
+      process.exit(1);
+    }
+    const skillArgs = [];
+    for (let i = 1; i < rest.length; i++) {
+      if (rest[i] === '--skill' && i + 1 < rest.length) skillArgs.push(rest[++i]);
+    }
+    const descIdx = rest.indexOf('--desc');
+    const description = descIdx >= 0 ? rest[descIdx + 1] : '';
+    const tagArgs = [];
+    for (let i = 0; i < rest.length; i++) {
+      if (rest[i] === '--tag' && i + 1 < rest.length) tagArgs.push(rest[++i]);
+    }
+    if (skillArgs.length === 0) {
+      console.error('bundle create: at least one --skill required');
+      process.exit(1);
+    }
+
+    const { path: gp, index } = readGlobalJsonOrExit(rest, 'bundle create');
+    try {
+      const bundle = _bundleManager.createBundle(index, {
+        name,
+        skills: skillArgs,
+        description,
+        tags: tagArgs,
+      });
+      _bundleManager.atomicWriteJson(gp, index);
+      console.log(`✓ bundle ${bundle.name} created with ${bundle.skills.length} skill(s)`);
+    } catch (err) {
+      console.error(`✗ bundle create: ${err.message}`);
+      process.exit(1);
+    }
+    return;
+  }
+
+  if (sub === 'delete') {
+    const name = rest[0];
+    if (!name) {
+      console.error('bundle delete: bundle name required');
+      process.exit(1);
+    }
+    const { path: gp, index } = readGlobalJsonOrExit(rest, 'bundle delete');
+    try {
+      const removed = _bundleManager.deleteBundle(index, name);
+      _bundleManager.atomicWriteJson(gp, index);
+      console.log(`✓ bundle ${removed.name} deleted`);
+    } catch (err) {
+      console.error(`✗ bundle delete: ${err.message}`);
+      process.exit(1);
+    }
+    return;
+  }
+
+  if (sub === 'activate') {
+    const name = rest[0];
+    if (!name) {
+      console.error('bundle activate: bundle name required');
+      process.exit(1);
+    }
+    const { path: gp, index } = readGlobalJsonOrExit(rest, 'bundle activate');
+    const bundle = _bundleManager.getBundle(index, name);
+    if (!bundle) {
+      console.error(`bundle activate: bundle "${name}" not found`);
+      process.exit(1);
+    }
+    const asJson = rest.includes('--json');
+    const logDirIdx = rest.indexOf('--log-dir');
+    const logDir = logDirIdx >= 0 ? path.resolve(rest[logDirIdx + 1]) : undefined;
+    // dry-run is default; --write opts in.
+    const dryRun = !rest.includes('--write');
+
+    const result = _bundleManager.activateBundle(bundle, { logDir, dryRun });
+
+    if (asJson) {
+      console.log(JSON.stringify(result, null, 2));
+    } else {
+      console.log(`Bundle: ${bundle.name} (${bundle.source}, ${bundle.skills.length} skills)`);
+      for (const evt of result.events) {
+        const tag = dryRun ? '~' : '✓';
+        console.log(`  ${tag} ${evt.skill}`);
+      }
+      if (dryRun) {
+        console.log(`\n(dry-run — pass --write to actually log activations)`);
+      } else {
+        console.log(`\nWrote ${result.written} activation event(s).`);
+      }
+    }
+    return;
+  }
+
+  if (sub === 'suggest') {
+    const { path: gp, index } = readGlobalJsonOrExit(rest, 'bundle suggest');
+    const logDirIdx = rest.indexOf('--log-dir');
+    const logDir = logDirIdx >= 0 ? path.resolve(rest[logDirIdx + 1]) : path.join(os.homedir(), '.meta-skills', 'logs');
+    const minDaysIdx = rest.indexOf('--min-days');
+    const minDays = minDaysIdx >= 0 ? parseInt(rest[minDaysIdx + 1], 10) : 3;
+    const asJson = rest.includes('--json');
+
+    const suggestions = _bundleManager.suggestBundles(logDir, { minDays });
+
+    if (asJson) {
+      console.log(JSON.stringify({ suggestions }, null, 2));
+    } else {
+      console.log(`# Suggested bundles (co-occurrence ≥ ${minDays} days)`);
+      if (suggestions.length === 0) {
+        console.log('  (no bundles detected — need more usage data)');
+        return;
+      }
+      for (const s of suggestions) {
+        console.log(`  ${s.skills.join(' + ')} (${s.cooccurrenceDays}d together)`);
+      }
+    }
+    return;
+  }
+
+  console.error(`bundle: unknown subcommand "${sub}" (expected: list|show|create|delete|activate|suggest)`);
+  process.exit(1);
+}
+
+async function cmdRecipe(args) {
+  await ensureModules();
+  const sub = args[0];
+  const rest = args.slice(1);
+
+  if (sub === 'init') {
+    const name = rest[0];
+    if (!name) {
+      console.error('recipe init: name required');
+      process.exit(1);
+    }
+    const outIdx = rest.indexOf('--out');
+    const outPath = outIdx >= 0 ? path.resolve(rest[outIdx + 1]) : null;
+    try {
+      const out = _recipeRunner.initRecipe(name, { outPath });
+      console.log(`✓ recipe scaffolded: ${out}`);
+    } catch (err) {
+      console.error(`✗ recipe init: ${err.message}`);
+      process.exit(1);
+    }
+    return;
+  }
+
+  if (sub === 'validate') {
+    const file = rest[0];
+    if (!file) {
+      console.error('recipe validate: file required');
+      process.exit(1);
+    }
+    try {
+      const recipe = _recipeRunner.readRecipe(file);
+      const { index } = readGlobalJsonOrExit(rest, 'recipe validate');
+      const result = _recipeRunner.validateRecipe(recipe, index);
+      console.log(`✓ recipe valid: ${recipe.steps.length} step(s)`);
+      if (result.warnings && result.warnings.length) {
+        for (const w of result.warnings) console.log(`  ! ${w}`);
+      }
+    } catch (err) {
+      console.error(`✗ recipe validate: ${err.message}`);
+      process.exit(1);
+    }
+    return;
+  }
+
+  if (sub === 'run') {
+    const file = rest[0];
+    if (!file) {
+      console.error('recipe run: file required');
+      process.exit(1);
+    }
+    try {
+      const recipe = _recipeRunner.readRecipe(file);
+      const { index } = readGlobalJsonOrExit(rest, 'recipe run');
+      const logDirIdx = rest.indexOf('--log-dir');
+      const logDir = logDirIdx >= 0 ? path.resolve(rest[logDirIdx + 1]) : undefined;
+      const dryRun = !rest.includes('--write');
+      const stopOnFailure = !rest.includes('--continue-on-failure');
+      const result = await _recipeRunner.runRecipe(recipe, index, { logDir, dryRun, stopOnFailure });
+      console.log(`recipe ${recipe.name || '(unnamed)'}: ${result.executed} step(s) ${dryRun ? 'previewed' : 'executed'}`);
+      for (const r of result.results) {
+        const tag = r.written ? '✓' : '~';
+        console.log(`  ${tag} step ${r.step}: ${r.skill} (${r.outcome})`);
+      }
+      if (dryRun) console.log(`\n(dry-run — pass --write to actually log activations)`);
+    } catch (err) {
+      console.error(`✗ recipe run: ${err.message}`);
+      process.exit(1);
+    }
+    return;
+  }
+
+  console.error(`recipe: unknown subcommand "${sub}" (expected: init|validate|run)`);
+  process.exit(1);
+}
+
 function showHelp() {
   console.log(`meta-skills v${PKG.version} - Agent Skill Index`);
   console.log('');
@@ -481,6 +767,17 @@ function showHelp() {
   console.log('  budget [--write|--archive]        Apply demote/archive (no --dry-run)');
   console.log('  budget --use-quality              Apply v1.6 quality scores as value multiplier');
   console.log('  agent-config <detect|inject|remove>  Agent config injection (v1.5)');
+  console.log('  bundle <list|show|create|delete|activate|suggest>  Skill bundles (v1.8)');
+  console.log('    bundle list [--include user|auto|all] [--tag X] [--json]');
+  console.log('    bundle show <name> [--json]');
+  console.log('    bundle create <name> --skill a --skill b [--desc \'...\'] [--tag X]');
+  console.log('    bundle delete <name>');
+  console.log('    bundle activate <name> [--write] [--json]    # dry-run by default');
+  console.log('    bundle suggest [--min-days 3] [--json]');
+  console.log('  recipe <init|validate|run>          Multi-step recipe workflows (v1.8)');
+  console.log('    recipe init <name> [--out <path>]');
+  console.log('    recipe validate <file>           # .recipe (YAML-style) or .json');
+  console.log('    recipe run <file> [--write] [--continue-on-failure]');
   console.log('');
   console.log('Options:');
   console.log('  --help                     Show this help message');
@@ -546,6 +843,8 @@ async function main() {
       case 'quality':      await cmdQuality(rest); break;
       case 'budget':       await cmdBudget(rest); break;
       case 'agent-config': await cmdAgentConfig(rest); break;
+      case 'bundle':       await cmdBundle(rest); break;
+      case 'recipe':       await cmdRecipe(rest); break;
       default:
         console.error(`✗ unknown command: ${command}`);
         console.error('  Run `meta-skills --help` for usage.');
