@@ -28,6 +28,8 @@ import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { buildBudgetPanel } from './budget-optimizer.mjs';
+import { listBundles, getBundle, computeBundleMetrics, suggestBundles as detectBundleSuggestions } from './bundle-manager.mjs';
+import { readRecipe } from './recipe-runner.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_HOST = '127.0.0.1';
@@ -198,12 +200,54 @@ export function buildHeatmap(events, skills, days = DEFAULT_HEATMAP_DAYS, refere
   return { days: dayList, skills: result };
 }
 
-export function buildBundles(index) {
-  return (index.suggested_bundles || []).map(b => ({
-    name: b.name,
-    skills: b.skills || [],
-    description: b.description || '',
-  }));
+export function buildBundles(index, opts = {}) {
+  const include = ['user', 'auto', 'all'].includes(opts.include) ? opts.include : 'all';
+  return listBundles(index, { include });
+}
+
+/**
+ * Build a single bundle's detail payload for /api/bundles/:name.
+ * Includes metrics (tokens + avg quality) computed via bundle-manager.
+ *
+ * @param {object} index
+ * @param {string} name
+ * @returns {object|null}
+ */
+export function buildBundleDetail(index, name) {
+  const bundle = getBundle(index, name);
+  if (!bundle) return null;
+  const metrics = computeBundleMetrics(index, name);
+  return { bundle, metrics };
+}
+
+/**
+ * Build the recipes listing payload for /api/recipes.
+ *
+ * @param {string} recipesDir - default ~/.meta-skills/recipes
+ * @returns {{recipes: Array<{name: string, path: string, format: 'recipe'|'json', steps: number}>}}
+ */
+export function buildRecipesList(recipesDir) {
+  const dir = recipesDir || path.join(os.homedir(), '.meta-skills', 'recipes');
+  if (!fs.existsSync(dir)) return { recipes: [] };
+  const entries = [];
+  for (const f of fs.readdirSync(dir)) {
+    const ext = path.extname(f).toLowerCase();
+    if (ext !== '.recipe' && ext !== '.json') continue;
+    const full = path.join(dir, f);
+    try {
+      const recipe = readRecipe(full);
+      entries.push({
+        name: recipe.name || path.basename(f, ext),
+        path: full,
+        format: ext.slice(1),
+        steps: Array.isArray(recipe.steps) ? recipe.steps.length : 0,
+      });
+    } catch {
+      // Skip malformed recipes.
+    }
+  }
+  entries.sort((a, b) => a.name.localeCompare(b.name));
+  return { recipes: entries };
 }
 
 // ---- HTTP handler ----------------------------------------------------------
@@ -294,7 +338,22 @@ function makeHandler(options) {
         return;
       }
       if (urlPath === '/api/bundles') {
-        sendJson(res, 200, { bundles: buildBundles(readIndex(globalPath)) });
+        const include = ['user', 'auto', 'all'].includes(params.include) ? params.include : 'all';
+        sendJson(res, 200, { include, bundles: buildBundles(readIndex(globalPath), { include }) });
+        return;
+      }
+      // /api/bundles/:name — detail with metrics
+      if (urlPath.startsWith('/api/bundles/')) {
+        const name = decodeURIComponent(urlPath.slice('/api/bundles/'.length));
+        if (!name) { send404(res); return; }
+        const detail = buildBundleDetail(readIndex(globalPath), name);
+        if (!detail) { send404(res); return; }
+        sendJson(res, 200, detail);
+        return;
+      }
+      // /api/recipes — list user recipe files from ~/.meta-skills/recipes/
+      if (urlPath === '/api/recipes') {
+        sendJson(res, 200, buildRecipesList());
         return;
       }
       if (urlPath === '/api/budget') {
@@ -417,6 +476,9 @@ export function getHtml() {
   .bundle { background: var(--panel-2); padding: 8px 12px; border-radius: 4px; margin-bottom: 6px; }
   .bundle .name { font-weight: 600; }
   .bundle .skills { color: var(--muted); font-size: 11px; margin-top: 2px; }
+  .bundle .badge { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 10px; font-weight: 600; margin-right: 4px; vertical-align: middle; }
+  .bundle .badge.user { background: var(--green); color: var(--bg); }
+  .bundle .badge.auto { background: var(--muted); color: var(--bg); }
   .pbar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; margin-top: 4px; }
   .pbar .seg { transition: width 0.3s; }
   .pbar .high { background: var(--hot); }
@@ -576,7 +638,12 @@ async function refresh() {
     } else {
       let b = '';
       for (const x of bundles.bundles) {
-        b += '<div class="bundle"><div class="name">' + escape(x.name) + '</div><div class="skills">' + x.skills.map(escape).join(' · ') + '</div>' + (x.description ? '<div style="margin-top:4px;font-size:11px">' + escape(x.description) + '</div>' : '') + '</div>';
+        const badge = x.source === 'user'
+          ? '<span class="badge user">user</span>'
+          : '<span class="badge auto">auto</span>';
+        const days = x.cooccurrenceDays != null ? ' <span style="color:var(--accent);font-size:11px">(' + x.cooccurrenceDays + 'd)</span>' : '';
+        const tags = x.tags && x.tags.length ? ' <span style="color:var(--muted);font-size:11px">[' + x.tags.map(escape).join(', ') + ']</span>' : '';
+        b += '<div class="bundle"><div class="name">' + badge + ' ' + escape(x.name) + days + tags + '</div><div class="skills">' + x.skills.map(escape).join(' · ') + '</div>' + (x.description ? '<div style="margin-top:4px;font-size:11px">' + escape(x.description) + '</div>' : '') + '</div>';
       }
       $('bundles-body').innerHTML = b;
     }
