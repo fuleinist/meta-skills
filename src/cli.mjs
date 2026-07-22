@@ -33,7 +33,7 @@ const PKG = JSON.parse(fs.readFileSync(path.resolve(__dirname, '..', 'package.js
 
 // Î"Ã¶Ã‡Î"Ã¶Ã‡ Import all modules directly (no execSync) Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡
 
-let _scanner, _projectScanner, _tracker, _improver, _maintainer, _validator, _syncer, _marketplace, _failureAnalyzer, _dashboard, _agentConfig, _qualityScorer, _budgetOptimizer, _bundleManager, _recipeRunner;
+let _scanner, _projectScanner, _tracker, _improver, _maintainer, _validator, _syncer, _marketplace, _failureAnalyzer, _dashboard, _agentConfig, _qualityScorer, _budgetOptimizer, _bundleManager, _recipeRunner, _semanticSearch;
 
 async function ensureModules() {
   if (!_scanner) {
@@ -69,6 +69,9 @@ async function ensureModules() {
     _budgetOptimizer = boMod;
     _bundleManager = bmMod;
     _recipeRunner = rrMod;
+  }
+  if (!_semanticSearch) {
+    _semanticSearch = await import(pathToFileURL(path.resolve(__dirname, 'semantic-search.mjs')).href);
   }
 }
 
@@ -279,6 +282,39 @@ async function cmdSearch(args) {
   // Forward to the marketplace module's cmdSearch. Strip any leading
   // 'search' so the marketplace module sees the query as args[0].
   await _marketplace.cmdSearch(args);
+}
+
+async function cmdSemantic(args) {
+  await ensureModules();
+  const query = args.filter(a => !a.startsWith('--')).join(' ');
+  if (!query) {
+    console.error('Usage: meta-skills semantic <query> [--mode semantic|fuzzy|hybrid] [--limit N] [--json]');
+    process.exit(1);
+  }
+  const modeIdx = args.indexOf('--mode');
+  const mode = modeIdx >= 0 ? args[modeIdx + 1] : 'hybrid';
+  const limitIdx = args.indexOf('--limit');
+  const limit = limitIdx >= 0 ? parseInt(args[limitIdx + 1], 10) : 10;
+  const asJson = args.includes('--json');
+
+  const globalJsonPath = path.resolve(
+    args[args.indexOf('--global-json') + 1] ||
+    path.join(os.homedir(), '.meta-skills', 'global.json')
+  );
+
+  const index = _semanticSearch.loadIndex(globalJsonPath);
+  if (!index) {
+    console.error(`No global.json found at ${globalJsonPath}. Run 'meta-skills init --global' first.`);
+    process.exit(1);
+  }
+
+  const results = _semanticSearch.search(index.skills || [], query, { mode, limit });
+
+  if (asJson) {
+    console.log(_semanticSearch.formatResultsJSON(results, query));
+  } else {
+    console.log(_semanticSearch.formatResults(results, query));
+  }
 }
 
 async function cmdInstall(args) {
@@ -759,6 +795,7 @@ function showHelp() {
   console.log('  sync                       Push then pull (combined sync)');
   console.log('  sync status                Show per-agent contribution summary');
   console.log('  search <query>             Search marketplace registries (awesome-agent-skills, agentskills.io)');
+  console.log('  semantic <query>            Semantic search your skill index (v1.9)');
   console.log('  install <skill-id>         Install a marketplace skill (writes SKILL.md, registers in global.json)');
   console.log('  marketplace <sub>          Raw marketplace passthrough (search|install|list|refresh)');
   console.log('  dashboard [--port 7777]    Local web dashboard (v1.4) - open http://127.0.0.1:7777');
@@ -836,6 +873,7 @@ async function main() {
       case 'status':   cmdStatus(rest); break;
       case 'sync':     await cmdSync(rest); break;
       case 'search':   await cmdSearch(rest); break;
+      case 'semantic': await cmdSemantic(rest); break;
       case 'install':  await cmdInstall(rest); break;
       case 'propose':   await cmdPropose(rest); break;
       case 'marketplace': await cmdMarketplace(rest); break;
