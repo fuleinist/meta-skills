@@ -373,7 +373,7 @@ The dashboard adds a "Token Budget (v1.7)" panel showing current vs cap, top-3 o
 
 ## Roadmap
 
-### ✅ Completed (v0.1-v1.0)
+### ✅ Completed (v0.1-v1.9)
 
 - [x] **v0.1** - Global scanner: detect skills from Claude Code, Cursor, OpenClaw, Hermes
 - [x] **v0.2** - Project scanner: extract context from README, CLAUDE.md, tech stack detection
@@ -382,28 +382,39 @@ The dashboard adds a "Token Budget (v1.7)" panel showing current vs cap, top-3 o
 - [x] **v0.5** - Background cron: periodic re-scan and cleanup
 - [x] **v0.6** - Schema registry: publish JSON Schema for validation
 - [x] **v1.0** - Stable release with CLI tool
+- [x] **v1.1** - Cross-agent sync: share usage patterns across Claude Code, Cursor, OpenClaw, Gemini CLI
+- [x] **v1.2** - Skill marketplace integration: search & install from awesome-agent-skills + agentskills.io
+- [x] **v1.3** - Failure-based auto-improvement: analyze failures, generate SKILL.md patches
+- [x] **v1.4** - Web dashboard: local UI with heatmaps, stale-skill warnings, co-occurrence graphs
+- [x] **v1.5** - Agent config injection: auto-inject meta-skills blocks into CLAUDE.md, .cursorrules, AGENTS.md, Gemini CLI
+- [x] **v1.6** - Skill quality scoring: readability, trigger precision, instruction clarity, token efficiency
+- [x] **v1.7** - Token budget optimizer: greedy demote/archive of low value-density skills under a cap
+- [x] **v1.8** - Skill bundles & recipes: user-defined bundles + multi-step recipe files
+- [x] **v1.9** - Semantic search & fuzzy matching: embedding-based skill discovery
 
-### 🔮 Next (v1.1-v2.0)
+### 🔮 Next (v0.1+)
 
-- [x] **v1.1 - Cross-agent sync** - Share usage patterns and skill metadata across Claude Code, Cursor, OpenClaw, and Gemini CLI agents via a shared `.meta-skills/sync/` directory. Each agent writes its own events to `~/.meta-skills/sync/<agent>/events.jsonl`. `meta-skills sync push` uploads local logs to the shared store; `meta-skills sync pull` aggregates all agents' events into `global.json`, recording `last_agents` (which agents have used each skill) and `last_synced_agent` (the most recent agent). Agent identity is auto-detected from `META_SKILLS_AGENT` env var, then from agent-specific env vars (`CLAUDE_API_KEY`, `CURSOR_API_KEY`, `OPENCLAW_CONFIG_DIR`, `GEMINI_API_KEY`, etc.), then from process argv. *Inspired by: EvoSkill's transferable skill concept, multi-agent coordination patterns.*
+- [ ] **v0.1 - Autonomous skill evolution** - Full EvoSkill-inspired loop: the system runs a held-out validation task, measures skill effectiveness, proposes mutations (split/merge/rewrite SKILL.md), and keeps only Pareto-improving variants. Human-in-the-loop approval gate. *Inspired by: EvoSkill (7.3% OfficeQA gain, 12.1% SealQA gain, zero-shot transfer), Cognee self-improving skills.*
 
-- [x] **v1.2 - Skill marketplace integration** - Query [awesome-agent-skills](https://github.com/VoltAgent/awesome-agent-skills) (1497+ skills) and [agentskills.io](https://agentskills.io) registries directly. `meta-skills search "react testing"` filters 1000+ marketplace skills by tokenized query against name, description, owner, and section. Supports `--source` (filter by registry), `--limit`, `--refresh` (force re-fetch), `--json` (machine-readable). Results are cached for 7 days in `~/.meta-skills/marketplace/` and deduped across sources (preferring awesome-agent-skills). `meta-skills install <skill-id>` fetches the SKILL.md from the source repo and writes it to `--target` dir (default `~/.meta-skills/installed/<id>/SKILL.md`), optionally registering it in `global.json` with `source: "marketplace"`. `meta-skills marketplace list|refresh` for raw access. *Inspired by: VoltAgent's 1000+ curated skills, agentskills.io registry.*
+- [ ] **v0.1.1 - Semantic versioning for skills** - Add `version` and `engines` frontmatter fields to SKILL.md files for individual skill version tracking. `meta-skills validate` checks semantic versions against runtime CLI engine compatibility. *Inspired by: npm package.json versioning, skill migration patterns.*
 
-- [x] **v1.3 - Failure-based auto-improvement** - When a skill activation records `outcome: failure`, the system automatically analyzes failure patterns and generates a proposed patch (diff) to the skill's SKILL.md. Three patch types: tighten when: field, add anti-patterns section, or suggest splitting the skill. Human reviews via propose list|apply|reject|auto-pr. Modeled on EvoSkill's Pareto-optimized failure-analysis loop. *Inspired by: EvoSkill (7.3% accuracy gain via failure analysis), BerriAI/self-improving-agent.*
+- [ ] **v0.1.2 - Git-style rollback ledger** - Maintain `~/.meta-skills/history.jsonl` transaction log tracking prior states of global.json before mutations. `meta-skills rollback --steps <n>` restores index to previous known-good state. Safety net for autonomous evolution. *Inspired by: git reflog, EvoSkill mutation lineage tracking.*
 
-- [x] **v1.4 - Web dashboard** - Local web UI showing skill usage heatmaps, stale-skill warnings, priority distribution, co-occurrence graphs, and a bundle explorer. `meta-skills dashboard --port 7777` boots a Node http server bound to 127.0.0.1 (loopback-only, security) and serves a single-page HTML+CSS+vanilla-JS app. JSON API at `/api/index`, `/api/logs`, `/api/stale`, `/api/priority`, `/api/cooccurrence`, `/api/heatmap`, `/api/bundles`. Auto-refreshes every 30s. Zero new dependencies - uses only Node.js stdlib. *Inspired by: agentskills.io visual catalog, Claude Code skill stats demand.*
+- [ ] **v0.1.3 - Declarative skill dependency graphs** - Add `requires` array to skill metadata schema. When activating a skill (e.g., `deploy-app`), the system auto-loads required sub-skills (e.g., `git-commits`, `ssh-management`). Static cycle detection via DFS in `meta-skills recipe validate`. *Inspired by: npm dependencies, v1.8 recipe chains, Make/Taskfile workflow patterns.*
 
-- [x] **v1.5 - Agent config injection** - Auto-inject meta-skills scan instructions into `CLAUDE.md`, `.cursorrules`, `AGENTS.md`, and Gemini CLI config. `meta-skills agent-config detect|inject|remove` with `--dry-run` and `--force`. 30 tests, zero new deps. *Inspired by: Claude best practices docs, progressive disclosure pattern.*
+- [ ] **v0.1.4 - Fine-grained empirical token telemetry** - Replace heuristic token estimates (chars/4) with empirical usage tracking. `meta-skills record <skill> --tokens <n>` captures exact tokens consumed during session. Iteratively tunes value-density formula with real-world data. *Inspired by: OpenAI token counting, v1.7 budget optimizer accuracy.*
 
-- [x] **v1.6 - Skill quality scoring** - Score each skill on readability, trigger precision, instruction clarity, and token efficiency. `meta-skills quality [--threshold <n>] [--json]`. 21 tests, zero external API calls, zero new deps. *Inspired by: Anthropic skill authoring best practices (concise, degrees of freedom, 500-line rule, trigger precision).*
+- [ ] **v0.1.5 - Capabilities & permissions manifest** - Declarative `permissions` block in skill frontmatter cataloging authorized access (`fs-read`, `fs-write`, `network`, `shell-exec`). Agent config files (CLAUDE.md, AGENTS.md) instruct agents to decline execution if actions exceed declared permissions. *Inspired by: POSIX capabilities, Docker security model, agent safety best practices.*
 
-- [x] **v1.7 - Token budget optimizer** - Greedy demote/archive of lowest value-density skills to fit a configurable cap. `meta-skills budget [--max-tokens 500] [--write|--archive] [--json] [--use-quality]`. 41 tests, dashboard `/api/budget` panel, zero new deps. *Inspired by: progressive disclosure research (10-tool accuracy ceiling), Anthropic 150-token target, EvoSkill value-density.*
+- [ ] **v0.1.6 - Live skill hot-reloading** - Background file watcher (`fs.watch`) detects changes to registered SKILL.md files during active sessions, automatically hot-reloading in-memory agent index. Integrates into dashboard server or maintenance task. Zero manual re-indexing required. *Inspired by: webpack HMR, nodemon, developer experience patterns.*
 
-- [x] **v1.8 - Skill bundles & recipes** - User-defined named bundles (separate from auto-detected) plus multi-step recipe files for chained skill activations. `meta-skills bundle <list|show|create|delete|activate|suggest>` (CRUD + activate + suggest) and `meta-skills recipe <init|validate|run>` (YAML-style `.recipe` + `.json`). 74 new tests (42 bundle-manager + 32 recipe-runner), 8 new dashboard endpoints (`/api/bundles?include=`, `/api/bundles/:name`, `/api/recipes`), zero new deps. User bundles persist in `index.bundles[]`; auto bundles in `index.suggested_bundles[]`. *Inspired by: EvoSkill skill composition, Make/Taskfile workflow patterns, LangChain prompt-template chains.*
+- [ ] **v0.1.7 - Deprecation & successor routing** - Introduce `deprecated: true, successor: "<skill-id>"` status mapping. When agent loads deprecated path, runtime logs warning and redirects to successor skill. Graceful lifecycle management without hard archive. *Inspired by: npm deprecation warnings, API versioning patterns.*
 
-- [ ] **v1.9 - Semantic search & fuzzy matching** - Replace keyword-based `when` matching with embedding-based semantic search. Skills are indexed by embedding at scan time; `meta-skills search "fix slow database queries"` returns relevant skills even when keywords don't match. *Inspired by: awesome-agent-skills search demands, agentskills.io discovery pattern.*
+- [ ] **v0.1.8 - Offline reputation metrics for marketplace** - Ship weekly static index of marketplace metadata mapping skills to reputation scores (GitHub stars, forks, community success rates). Merge into cached results in `~/.meta-skills/marketplace/`. Filters untrusted community skills without runtime API calls. *Inspired by: npm download counts, GitHub stars, awesome-list curation.*
 
-- [ ] **v2.0 - Autonomous skill evolution** - Full EvoSkill-inspired loop: the system runs a held-out validation task, measures skill effectiveness, proposes mutations (split/merge/rewrite SKILL.md), and keeps only Pareto-improving variants. Human-in-the-loop approval gate. *Inspired by: EvoSkill (7.3% OfficeQA gain, 12.1% SealQA gain, zero-shot transfer), Cognee self-improving skills.*
+- [ ] **v0.1.9 - Skill A/B testing in live workspaces** - `meta-skills pilot` maintains two skill instruction variants (e.g., `SKILL_variant_A.md`, `SKILL_variant_B.md`). Index alternates variants over 50-100 runs, compares empirical success/failure rates. Pilot config maps `skill-id` to multiple file paths, dynamically updates priority ratings. *Inspired by: feature flags, A/B testing frameworks, data-driven optimization.*
+
+- [ ] **v0.2.0 - Self-healing skill instructions** - When skill fails and triggers v1.3 auto-improvement patch, automatically package failed conversation prompt as micro-test-case. Mutated skill runs against specific test case + wider baseline suite to guarantee zero-regression. Dynamic test cases saved to `.meta-skills/tests/` for evolutionary engine. *Inspired by: EvoSkill Pareto-filtered validation, regression testing, TDD.*
 
 ## Related Work
 
