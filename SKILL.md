@@ -606,6 +606,54 @@ meta-skills agent-config remove
 - **Zero new dependencies** - uses only Node.js stdlib (`node:fs`, `node:os`, `node:path`)
 - **30 tests** - 17 detection + 13 write-back (create, update, append, remove, dry-run, force, injectAll)
 
+## Phase 12: Semantic Versioning for Skills (v0.1.1)
+
+Adds per-skill semantic versioning and runtime engine compatibility checking.
+
+### What's new
+
+- **Schema**: `SkillEntry` gains optional `version` (semver `\d+.\d+.\d+`) and `engines` (with `node` constraint) fields
+- **Scanner**: `parseFrontmatter` now extracts nested `metadata.version` and `metadata.engines` from SKILL.md frontmatter
+- **Validator**: `meta-skills validate --check-engines` warns when skill `engines.node` is incompatible with current `process.version`
+- **Semver ranges**: supports `>=`, `^`, `~`, `*` (any)
+
+### CLI
+
+```bash
+# Validate with engine check
+meta-skills validate ~/.meta-skills/global.json --check-engines
+
+# Engine warning example (on Node < 18)
+⚠ git-commits: requires node >=18.0.0, current is v16.20.2
+```
+
+### SKILL.md frontmatter
+
+```yaml
+---
+name: my-skill
+description: Does something useful
+metadata:
+  author: me
+  version: "1.2.3"
+  engines:
+    node: ">=18.0.0"
+---
+```
+
+### Design
+
+- **Backward compatible** — `version` and `engines` are optional; existing skills work unchanged
+- **Non-fatal warnings** — `--check-engines` exits 0 unless schema errors exist
+- **Zero new npm deps** — pure Node.js stdlib (`semverGte`, `checkEngineRange`)
+- **21 validate tests, 22 scanner tests** (was 10/20)
+
+### Inspired by
+
+- Semantic versioning 2.0.0 spec (semver.org)
+- Node.js engine constraints in package.json
+- EvoSkill version tagging for mutation lineage tracking (future v0.1.2 dependency)
+
 ## References
 
 - [Agent Skills Specification](https://agentskills.io/specification.md) - The SKILL.md standard
