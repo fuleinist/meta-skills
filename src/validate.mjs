@@ -13,6 +13,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseSemver, checkEngines } from './semver-compat.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_SCHEMA = path.resolve(__dirname, '..', 'schema', 'v1.json');
@@ -166,14 +167,43 @@ function main(options) {
     }
 
     const errors = validateAgainstSchema(data, schema);
-    if (errors.length === 0) {
+
+    // v0.1.1 — semver compatibility check on skill entries
+    const semverIssues = [];
+    if (Array.isArray(data.skills)) {
+      for (const skill of data.skills) {
+        if (skill.engines) {
+          const engResult = checkEngines(skill.engines);
+          if (!engResult.compatible) {
+            for (const issue of engResult.issues) {
+              semverIssues.push(`[${skill.id}] ${issue}`);
+            }
+          }
+        }
+        // Warn on deprecated skills still in active list
+        if (skill.deprecated && skill.priority !== 'archived') {
+          semverIssues.push(`[${skill.id}] deprecated but still active (successor: ${skill.successor || 'none'})`);
+        }
+      }
+    }
+
+    if (errors.length === 0 && semverIssues.length === 0) {
       console.log(`✓ ${filePath}: valid`);
     } else {
-      console.log(`✗ ${filePath}: ${errors.length} error(s)`);
-      for (const err of errors) {
-        console.log(`    ${err}`);
+      if (errors.length > 0) {
+        console.log(`✗ ${filePath}: ${errors.length} schema error(s)`);
+        for (const err of errors) {
+          console.log(`    ${err}`);
+        }
+        totalErrors += errors.length;
       }
-      totalErrors += errors.length;
+      if (semverIssues.length > 0) {
+        console.log(`  ⚠ ${semverIssues.length} compatibility warning(s):`);
+        for (const w of semverIssues) {
+          console.log(`    ${w}`);
+        }
+        totalErrors += semverIssues.length;
+      }
     }
   }
 

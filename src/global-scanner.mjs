@@ -82,7 +82,7 @@ function parseFrontmatter(text) {
   const yaml = match[1];
   const obj = {};
   for (const line of yaml.split('\n')) {
-    const kv = line.match(/^\s*(\w+)\s*:\s*(.+)$/);
+    const kv = line.match(/^\s*(\w+(?:-\w+)*)\s*:\s*(.+)$/);
     if (kv) {
       let val = kv[2].trim();
       // Strip quotes
@@ -90,6 +90,13 @@ function parseFrontmatter(text) {
           (val.startsWith("'") && val.endsWith("'"))) {
         val = val.slice(1, -1);
       }
+      // Parse arrays: [a, b, c]
+      if (val.startsWith('[') && val.endsWith(']')) {
+        try { val = JSON.parse(val); } catch { /* keep as string */ }
+      }
+      // Parse booleans
+      if (val === 'true') val = true;
+      if (val === 'false') val = false;
       obj[kv[1]] = val;
     }
   }
@@ -125,6 +132,16 @@ function scanDir(skillsDir) {
       priority: 'medium',
       usage_count: 0,
       last_used: null,
+      // v0.1.1 — semantic versioning
+      version: frontmatter.version || null,
+      engines: frontmatter.engines || null,
+      // v0.1.5 — permissions manifest
+      permissions: frontmatter.permissions || null,
+      // v0.1.7 — deprecation routing
+      deprecated: frontmatter.deprecated || null,
+      successor: frontmatter.successor || null,
+      // v0.1.3 — dependency graph
+      requires: frontmatter.requires || null,
     });
   }
   return entries;

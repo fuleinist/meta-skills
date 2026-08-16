@@ -39,6 +39,28 @@
         "$ref": "#/definitions/SkillEntry"
       }
     },
+    "bundles": {
+      "type": "array",
+      "description": "User-defined skill bundles (v1.8+)",
+      "items": {
+        "$ref": "#/definitions/BundleEntry"
+      }
+    },
+    "suggested_bundles": {
+      "type": "array",
+      "description": "Auto-detected co-occurrence bundles (v0.4+)",
+      "items": {
+        "$ref": "#/definitions/SuggestedBundle"
+      }
+    },
+    "rollback": {
+      "type": "object",
+      "description": "Rollback ledger metadata (v0.1.2)",
+      "properties": {
+        "history_count": { "type": "integer", "minimum": 0 },
+        "last_snapshot": { "type": ["string", "null"], "format": "date-time" }
+      }
+    },
     "project_context": {
       "type": "object",
       "description": "Project-specific context (only in project-level meta-skills)",
@@ -103,7 +125,76 @@
           "type": ["string", "null"],
           "format": "date-time",
           "description": "ISO-8601 timestamp when this skill was archived"
+        },
+        "version": {
+          "type": ["string", "null"],
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "description": "Semantic version of the SKILL.md (v0.1.1)"
+        },
+        "engines": {
+          "type": ["object", "null"],
+          "description": "Engine compatibility constraints (v0.1.1)",
+          "properties": {
+            "meta-skills": { "type": "string" }
+          }
+        },
+        "deprecated": {
+          "type": ["boolean", "null"],
+          "description": "Whether this skill is deprecated (v0.1.7)"
+        },
+        "successor": {
+          "type": ["string", "null"],
+          "pattern": "^[a-z0-9][a-z0-9-]{0,63}$",
+          "description": "ID of the successor skill (v0.1.7)"
+        },
+        "requires": {
+          "type": ["array", "null"],
+          "description": "Skill IDs this skill depends on (v0.1.3)",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+          }
+        },
+        "permissions": {
+          "type": ["array", "null"],
+          "description": "Authorized access levels for this skill (v0.1.5)",
+          "items": {
+            "type": "string",
+            "enum": ["fs-read", "fs-write", "network", "shell-exec", "env-read", "process-exec"]
+          }
+        },
+        "empirical_tokens": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Empirically measured token count (v0.1.4)"
+        },
+        "avg_quality": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Average quality score from v1.6 (v0.1.x)"
         }
+      }
+    },
+    "BundleEntry": {
+      "type": "object",
+      "required": ["name", "skills"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,63}$" },
+        "description": { "type": "string" },
+        "skills": { "type": "array", "items": { "type": "string" } },
+        "tags": { "type": "array", "items": { "type": "string" } },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "source": { "type": "string", "enum": ["user"] }
+      }
+    },
+    "SuggestedBundle": {
+      "type": "object",
+      "required": ["skills", "cooccurrenceDays"],
+      "properties": {
+        "skills": { "type": "array", "items": { "type": "string" }, "minItems": 2 },
+        "cooccurrenceDays": { "type": "integer", "minimum": 1 }
       }
     }
   }

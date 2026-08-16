@@ -17,6 +17,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { checkDeprecation } from './semver-compat.mjs';
 
 // ---- Scoring dimensions ----------------------------------------------------
 
@@ -227,11 +228,21 @@ export function scoreSkill(entry) {
   if (overall < 30) flags.push('critical');
   if (!content) flags.push('no-content');
 
+  // v0.1.7 — deprecated skills get flagged
+  const depInfo = checkDeprecation(entry);
+  if (depInfo.deprecated && entry.priority !== 'archived') {
+    flags.push('deprecated');
+  }
+
   return {
     id: entry.id || entry.name || 'unknown',
     score: overall,
     dimensions,
     flags,
+    // v0.1 metadata
+    version: entry.version || null,
+    deprecated: entry.deprecated || false,
+    successor: entry.successor || null,
   };
 }
 

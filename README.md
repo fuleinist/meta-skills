@@ -394,11 +394,11 @@ The dashboard adds a "Token Budget (v1.7)" panel showing current vs cap, top-3 o
 
 ### 🔮 Next (v0.1+)
 
-- [ ] **v0.1 - Autonomous skill evolution** - Full EvoSkill-inspired loop: the system runs a held-out validation task, measures skill effectiveness, proposes mutations (split/merge/rewrite SKILL.md), and keeps only Pareto-improving variants. Human-in-the-loop approval gate. *Inspired by: EvoSkill (7.3% OfficeQA gain, 12.1% SealQA gain, zero-shot transfer), Cognee self-improving skills.*
+- [x] **v0.1 - Autonomous skill evolution** - Full EvoSkill-inspired loop: the system runs a held-out validation task, measures skill effectiveness, proposes mutations (split/merge/rewrite SKILL.md), and keeps only Pareto-improving variants. Human-in-the-loop approval gate. `meta-skills evolve baseline|propose|review|approve|reject|--all`. *Inspired by: EvoSkill (7.3% OfficeQA gain, 12.1% SealQA gain, zero-shot transfer), Cognee self-improving skills.*
 
-- [ ] **v0.1.1 - Semantic versioning for skills** - Add `version` and `engines` frontmatter fields to SKILL.md files for individual skill version tracking. `meta-skills validate` checks semantic versions against runtime CLI engine compatibility. *Inspired by: npm package.json versioning, skill migration patterns.*
+- [x] **v0.1.1 - Semantic versioning for skills** - Add `version` and `engines` frontmatter fields to SKILL.md files for individual skill version tracking. `meta-skills validate` checks semantic versions against runtime CLI engine compatibility. *Inspired by: npm package.json versioning, skill migration patterns.*
 
-- [ ] **v0.1.2 - Git-style rollback ledger** - Maintain `~/.meta-skills/history.jsonl` transaction log tracking prior states of global.json before mutations. `meta-skills rollback --steps <n>` restores index to previous known-good state. Safety net for autonomous evolution. *Inspired by: git reflog, EvoSkill mutation lineage tracking.*
+- [x] **v0.1.2 - Git-style rollback ledger** - Maintain `~/.meta-skills/history.jsonl` transaction log tracking prior states of global.json before mutations. `meta-skills rollback --steps <n>` restores index to previous known-good state. Safety net for autonomous evolution. *Inspired by: git reflog, EvoSkill mutation lineage tracking.*
 
 - [ ] **v0.1.3 - Declarative skill dependency graphs** - Add `requires` array to skill metadata schema. When activating a skill (e.g., `deploy-app`), the system auto-loads required sub-skills (e.g., `git-commits`, `ssh-management`). Static cycle detection via DFS in `meta-skills recipe validate`. *Inspired by: npm dependencies, v1.8 recipe chains, Make/Taskfile workflow patterns.*
 

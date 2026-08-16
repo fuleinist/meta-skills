@@ -33,7 +33,7 @@ const PKG = JSON.parse(fs.readFileSync(path.resolve(__dirname, '..', 'package.js
 
 // Î"Ã¶Ã‡Î"Ã¶Ã‡ Import all modules directly (no execSync) Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡
 
-let _scanner, _projectScanner, _tracker, _improver, _maintainer, _validator, _syncer, _marketplace, _failureAnalyzer, _dashboard, _agentConfig, _qualityScorer, _budgetOptimizer, _bundleManager, _recipeRunner, _semanticSearch;
+let _scanner, _projectScanner, _tracker, _improver, _maintainer, _validator, _syncer, _marketplace, _failureAnalyzer, _dashboard, _agentConfig, _qualityScorer, _budgetOptimizer, _bundleManager, _recipeRunner, _semanticSearch, _rollback, _semver, _evolution;
 
 async function ensureModules() {
   if (!_scanner) {
@@ -73,7 +73,19 @@ async function ensureModules() {
   if (!_semanticSearch) {
     _semanticSearch = await import(pathToFileURL(path.resolve(__dirname, 'semantic-search.mjs')).href);
   }
+  if (!_rollback) {
+    _rollback = await import(pathToFileURL(path.resolve(__dirname, 'rollback-ledger.mjs')).href);
+  }
+  if (!_semver) {
+    _semver = await import(pathToFileURL(path.resolve(__dirname, 'semver-compat.mjs')).href);
+  }
+  if (!_evolution) {
+    _evolution = await import(pathToFileURL(path.resolve(__dirname, 'evolution.mjs')).href);
+  }
 }
+
+// Expose _evolution for cmdEvolve
+
 
 // Î"Ã¶Ã‡Î"Ã¶Ã‡ Commands Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡
 
@@ -188,8 +200,17 @@ async function cmdMaintain(args) {
     if (args[i] === '--project-dir' && i + 1 < args.length) options.projectDir = path.resolve(args[++i]);
     else if (args[i] === '--dry-run') options.dryRun = true;
     else if (args[i] === '--from-failures') options.fromFailures = true;
+    else if (args[i] === '--snapshot') options.snapshot = true;
   }
   _maintainer.main(options);
+  // v0.1.2 — auto-snapshot after maintenance (unless dry-run)
+  if (!options.dryRun && options.snapshot !== false) {
+    try {
+      _rollback.autoSnapshot(null, 'maintain');
+    } catch {
+      // non-fatal
+    }
+  }
   if (options.fromFailures) {
     console.log('');
     _failureAnalyzer.analyzeFailures({ sinceDays: 7, dryRun: options.dryRun });
@@ -259,6 +280,13 @@ function cmdStatus(args) {
   const totalUsage = index.skills.reduce((sum, s) => sum + (s.usage_count || 0), 0);
   const bundles = (index.suggested_bundles || []).length;
 
+  // v0.1 — count special status skills
+  const deprecated = index.skills.filter(s => s.deprecated).length;
+  const withVersion = index.skills.filter(s => s.version).length;
+  const withEmpiricalTokens = index.skills.filter(s => s.empirical_tokens != null).length;
+  const hasRollback = index.rollback && index.rollback.history_count > 0;
+  const rollbackCount = index.rollback ? index.rollback.history_count : 0;
+
   if (asJson) {
     console.log(JSON.stringify({
       version: PKG.version,
@@ -266,6 +294,11 @@ function cmdStatus(args) {
       totalActivations: totalUsage,
       suggestedBundles: bundles,
       generated: index.generated,
+      // v0.1 additions
+      deprecatedSkills: deprecated,
+      versionedSkills: withVersion,
+      empiricalTokenTracking: withEmpiricalTokens,
+      rollbackSnapshots: rollbackCount,
     }, null, 2));
   } else {
     console.log(`meta-skills v${PKG.version}`);
@@ -273,6 +306,10 @@ function cmdStatus(args) {
     console.log(`  Priority: ${high} high, ${medium} medium, ${low} low`);
     console.log(`  Total activations: ${totalUsage}`);
     if (bundles > 0) console.log(`  Suggested bundles: ${bundles}`);
+    if (withVersion > 0) console.log(`  Versioned skills: ${withVersion}`);
+    if (withEmpiricalTokens > 0) console.log(`  Empirical token tracking: ${withEmpiricalTokens}`);
+    if (deprecated > 0) console.log(`  Deprecated (active): ${deprecated}`);
+    if (hasRollback) console.log(`  Rollback snapshots: ${rollbackCount}`);
     console.log(`  Generated: ${index.generated}`);
   }
 }
@@ -481,8 +518,183 @@ async function cmdBudget(args) {
     write: args.includes('--write'),
   });
 
+  // v0.1.2 — auto-snapshot after budget mutation
+  if (code === 0 && !dryRun && args.includes('--write')) {
+    try {
+      _rollback.autoSnapshot(globalJsonPath, 'budget');
+    } catch {
+      // non-fatal
+    }
+  }
+
   if (code !== 0) {
     process.exit(code);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// v0.1.2 — Rollback Ledger
+// ---------------------------------------------------------------------------
+
+async function cmdRollback(args) {
+  await ensureModules();
+  try {
+    await _rollback.cmdRollback(args);
+  } catch (e) {
+    console.error(`✗ ${e.message}`);
+    process.exit(1);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// v0.1.1 — Semver Compatibility
+// ---------------------------------------------------------------------------
+
+async function cmdEvolve(args) {
+  await ensureModules();
+  const subcommand = args[0];
+  const options = {};
+
+  for (let i = 1; i < args.length; i++) {
+    if (args[i] === '--global-json' && i + 1 < args.length) options.globalJson = path.resolve(args[++i]);
+    else if (args[i] === '--dry-run') options.dryRun = true;
+    else if (!options._passed) options._passed = args[i];
+  }
+
+  switch (subcommand) {
+    case 'baseline':
+      _evolution.runBaseline(options.globalJson);
+      break;
+    case 'propose':
+      await _evolution.evolve({ ...options, noBaseline: true });
+      break;
+    case 'review':
+      _evolution.listProposals();
+      break;
+    case 'approve': {
+      const id = args[1];
+      if (!id) { console.error('Usage: meta-skills evolve approve <id>'); process.exit(1); }
+      _evolution.approveProposal(id, options.globalJson);
+      break;
+    }
+    case 'reject': {
+      const id = args[1];
+      if (!id) { console.error('Usage: meta-skills evolve reject <id>'); process.exit(1); }
+      _evolution.rejectProposal(id, options.globalJson);
+      break;
+    }
+    case '--all':
+    case 'all':
+      await _evolution.evolve(options);
+      break;
+    default:
+      // No subcommand = show help
+      console.log(`meta-skills evolve — Autonomous skill evolution (v0.1)
+
+Usage:
+  meta-skills evolve baseline              Run baseline quality measurement
+  meta-skills evolve propose [--dry-run]   Generate mutation proposals
+  meta-skills evolve review                List pending proposals
+  meta-skills evolve approve <id>          Apply an approved proposal
+  meta-skills evolve reject <id>           Discard a proposal
+  meta-skills evolve --all                 Full pipeline: baseline → propose → review
+
+Options:
+  --global-json <path>   Custom global.json path
+  --dry-run              Preview changes without writing`);
+      process.exit(0);
+  }
+}
+
+async function cmdSemver(args) {
+  await ensureModules();
+  try {
+    // Parse args for semver subcommand
+    const sub = args[0];
+    const rest = args.slice(1);
+
+    switch (sub) {
+      case 'check': {
+        const version = rest[0];
+        const range = rest[1];
+        if (!version || !range) {
+          console.error('Usage: meta-skills semver check <version> <range>');
+          process.exit(1);
+        }
+        const result = _semver.satisfies(version, range);
+        console.log(`${version} ${result ? 'satisfies' : 'does not satisfy'} ${range}`);
+        process.exit(result ? 0 : 1);
+        break;
+      }
+      case 'engines': {
+        const skillId = rest[0];
+        const gjIdx = rest.indexOf('--global-json');
+        const gjPath = gjIdx >= 0 ? path.resolve(rest[gjIdx + 1]) :
+          path.join(os.homedir(), '.meta-skills', 'global.json');
+        const index = JSON.parse(fs.readFileSync(gjPath, 'utf-8'));
+        const skill = [...(index.skills || []), ...(index.stale || [])].find(s => s.id === skillId);
+        if (!skill) {
+          console.error(`Skill "${skillId}" not found`);
+          process.exit(1);
+        }
+        const result = _semver.checkEngines(skill.engines);
+        if (result.compatible) {
+          console.log(`✓ ${skillId}: engines compatible`);
+        } else {
+          console.log(`✗ ${skillId}: engine incompatibility`);
+          for (const issue of result.issues) console.log(`  - ${issue}`);
+          process.exit(1);
+        }
+        break;
+      }
+      case 'deps': {
+        const gjIdx = rest.indexOf('--global-json');
+        const gjPath = gjIdx >= 0 ? path.resolve(rest[gjIdx + 1]) :
+          path.join(os.homedir(), '.meta-skills', 'global.json');
+        const index = JSON.parse(fs.readFileSync(gjPath, 'utf-8'));
+        const result = _semver.validateDependencies(index);
+        if (result.errors.length > 0) {
+          console.log(`✗ Dependency errors (${result.errors.length}):`);
+          for (const e of result.errors) console.log(`  - ${e}`);
+          process.exit(1);
+        }
+        if (result.cycles.length > 0) {
+          console.log(`✗ Circular dependencies detected:`);
+          for (const cycle of result.cycles) console.log(`  ${cycle.join(' → ')}`);
+          process.exit(1);
+        }
+        console.log('✓ Dependency graph is valid');
+        break;
+      }
+      case 'check-deprecated': {
+        const gjIdx = rest.indexOf('--global-json');
+        const gjPath = gjIdx >= 0 ? path.resolve(rest[gjIdx + 1]) :
+          path.join(os.homedir(), '.meta-skills', 'global.json');
+        const index = JSON.parse(fs.readFileSync(gjPath, 'utf-8'));
+        let warnings = 0;
+        for (const skill of index.skills || []) {
+          const dep = _semver.checkDeprecation(skill);
+          if (dep.deprecated) {
+            console.log(`⚠ ${dep.warning}`);
+            warnings++;
+          }
+        }
+        if (warnings === 0) {
+          console.log('✓ No deprecated skills in active index');
+        }
+        break;
+      }
+      default:
+        console.log(`Usage:
+  meta-skills semver check <version> <range>
+  meta-skills semver engines <skill-id>
+  meta-skills semver deps [--global-json <path>]
+  meta-skills semver check-deprecated [--global-json <path>]`);
+        process.exit(0);
+    }
+  } catch (e) {
+    console.error(`✗ ${e.message}`);
+    process.exit(1);
   }
 }
 
@@ -815,6 +1027,23 @@ function showHelp() {
   console.log('    recipe init <name> [--out <path>]');
   console.log('    recipe validate <file>           # .recipe (YAML-style) or .json');
   console.log('    recipe run <file> [--write] [--continue-on-failure]');
+  console.log('  rollback <snapshot|list|<n>|prune>   Rollback ledger (v0.1.2)');
+  console.log('    rollback snapshot [--comment "text"] [--global-json <path>]');
+  console.log('    rollback list [--json]');
+  console.log('    rollback <n> [--dry-run]         # restore N snapshots ago');
+  console.log('    rollback prune [--keep 10] [--older-than 30]');
+  console.log('  semver <check|engines|deps|check-deprecated>  Semver compatibility (v0.1.1)');
+  console.log('    semver check <version> <range>');
+  console.log('    semver engines <skill-id>');
+  console.log('    semver deps [--global-json <path>]');
+  console.log('    semver check-deprecated [--global-json <path>]');
+  console.log('  evolve <baseline|propose|review|approve|reject|--all>  Autonomous skill evolution (v0.1)');
+  console.log('    evolve baseline              Run baseline quality measurement');
+  console.log('    evolve propose [--dry-run]   Generate mutation proposals');
+  console.log('    evolve review                List pending proposals');
+  console.log('    evolve approve <id>          Apply an approved proposal');
+  console.log('    evolve reject <id>           Discard a proposal');
+  console.log('    evolve --all                 Full pipeline: baseline → propose → review');
   console.log('');
   console.log('Options:');
   console.log('  --help                     Show this help message');
@@ -883,6 +1112,9 @@ async function main() {
       case 'agent-config': await cmdAgentConfig(rest); break;
       case 'bundle':       await cmdBundle(rest); break;
       case 'recipe':       await cmdRecipe(rest); break;
+      case 'rollback':     await cmdRollback(rest); break;
+      case 'semver':       await cmdSemver(rest); break;
+      case 'evolve':       await cmdEvolve(rest); break;
       default:
         console.error(`✗ unknown command: ${command}`);
         console.error('  Run `meta-skills --help` for usage.');
