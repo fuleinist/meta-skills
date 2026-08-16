@@ -158,7 +158,7 @@ function checkEngineRange(current, rangeStr) {
   return semverGte(cur, req);
 }
 
-function checkEngines(index) {
+function checkSkillEngines(index) {
   const warnings = [];
   const nodeConstraint = index?.skills?.flatMap(s => s.engines?.node ? [s.engines.node] : []).pop();
   // Check each skill with an engines constraint
@@ -261,7 +261,7 @@ function main(options) {
 
     // Engine compatibility warnings (non-fatal)
     if (checkEnginesFlag) {
-      const warnings = checkEngines(data);
+      const warnings = checkSkillEngines(data);
       for (const w of warnings) {
         console.log(`⚠ ${filePath}: ${w}`);
       }
@@ -274,4 +274,4 @@ function main(options) {
 const isMain = process.argv[1] && (process.argv[1] === fileURLToPath(import.meta.url) || process.argv[1].endsWith('validate.mjs'));
 if (isMain) main({});
 
-export { main, validateAgainstSchema, parseSemverRange, checkEngines };
+export { main, validateAgainstSchema, parseSemverRange, checkSkillEngines };
