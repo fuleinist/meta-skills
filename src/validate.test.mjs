@@ -9,7 +9,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { execSync } from 'node:child_process';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -140,6 +140,56 @@ const badDate = writeJson('bad-date.json', {
 });
 const r7 = run(badDate);
 check('bad date fails', !r7.valid);
+
+// ── Test 8: Invalid — bad version pattern ───────────────────────────
+console.log('\n--- Invalid: bad version pattern ---');
+const badVersion = writeJson('bad-version.json', {
+  $schema: 'https://meta-skills.dev/schema/v1.json',
+  version: '1.0',
+  generated: '2026-06-24T08:48:00+10:00',
+  source: 'global',
+  skills: [{ id: 'test', when: 'test', why: 'test', path: '/tmp/SKILL.md', priority: 'high', version: 'not-semver' }],
+  stale: [],
+});
+const r8 = run(badVersion);
+check('bad version pattern fails', !r8.valid);
+check('reports bad version', r8.output.includes('version'));
+
+// ── Test 9: Valid — skill with version and engines ────────────────────
+console.log('\n--- Valid: skill with version + engines ---');
+const withVersion = writeJson('with-version.json', {
+  $schema: 'https://meta-skills.dev/schema/v1.json',
+  version: '1.0',
+  generated: '2026-06-24T08:48:00+10:00',
+  source: 'global',
+  skills: [{ id: 'test', when: 'test', why: 'test', path: '/tmp/SKILL.md', priority: 'high', version: '1.2.3', engines: { node: '>=18.0.0' } }],
+  stale: [],
+});
+const r9 = run(withVersion);
+check('valid version+engines passes', r9.valid);
+
+// ── Engine compatibility checks (v0.1.1) ─────────────────────────────
+const validator = await import(pathToFileURL(path.join(__dirname, 'validate.mjs')).href);
+
+// parseSemverRange
+check('parseSemverRange >=18.0.0 parses correctly', JSON.stringify(validator.parseSemverRange('>=18.0.0')) === JSON.stringify({ op: '>=', major: 18, minor: 0, patch: 0 }));
+check('parseSemverRange ^18.0.0 parses correctly', JSON.stringify(validator.parseSemverRange('^18.0.0')) === JSON.stringify({ op: '^', major: 18, minor: 0, patch: 0 }));
+check('parseSemverRange ~18.2.0 parses correctly', JSON.stringify(validator.parseSemverRange('~18.2.0')) === JSON.stringify({ op: '~', major: 18, minor: 2, patch: 0 }));
+check('parseSemverRange * returns any', validator.parseSemverRange('*').op === 'any');
+
+// checkEngines
+const idxWithOldNode = { skills: [{ id: 'old-skill', engines: { node: '>=99.0.0' } }] };
+const warnings = validator.checkEngines(idxWithOldNode);
+check('checkEngines warns for incompatible node', warnings.length > 0);
+check('checkEngines mentions skill id', warnings.some(w => w.includes('old-skill')));
+
+const idxWithGoodNode = { skills: [{ id: 'good-skill', engines: { node: '>=18.0.0' } }] };
+const goodWarnings = validator.checkEngines(idxWithGoodNode);
+check('checkEngines no warning for compatible node', goodWarnings.length === 0);
+
+const idxNoEngines = { skills: [{ id: 'no-engines', priority: 'high' }] };
+const noWarnings = validator.checkEngines(idxNoEngines);
+check('checkEngines no warnings when no engines', noWarnings.length === 0);
 
 // ── Cleanup ───────────────────────────────────────────────────────────
 fs.rmSync(tmpDir, { recursive: true, force: true });

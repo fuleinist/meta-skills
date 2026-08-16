@@ -121,12 +121,62 @@ function validateAgainstSchema(data, schema) {
   return errors;
 }
 
+// ── Engine compatibility checker (v0.1.1) ────────────────────────────
+
+function parseSemverRange(range) {
+  // Supports: >=X.Y.Z, ^X.Y.Z, ~X.Y.Z, X.Y.Z, * (any)
+  if (!range || range === '*') return { op: 'any', major: 0, minor: 0, patch: 0 };
+  const m = range.match(/^(>=|\^|~)?(\d+)\.(\d+)(?:\.(\d+))?$/);
+  if (!m) return null;
+  const op = m[1] || '>=';
+  const major = parseInt(m[2], 10);
+  const minor = parseInt(m[3], 10);
+  const patch = m[4] !== undefined ? parseInt(m[4], 10) : 0;
+  return { op, major, minor, patch };
+}
+
+function semverGte(actual, required) {
+  // actual and required are {major, minor, patch}
+  if (actual.major !== required.major) return actual.major >= required.major;
+  if (actual.minor !== required.minor) return actual.minor >= required.minor;
+  return actual.patch >= required.patch;
+}
+
+function checkEngineRange(current, rangeStr) {
+  const req = parseSemverRange(rangeStr);
+  if (!req || req.op === 'any') return true;
+  const cur = { major: process.version.replace('v', '').split('.').map(Number)[0],
+                minor: process.version.replace('v', '').split('.')[1],
+                patch: process.version.replace('v', '').split('.')[2] };
+  if (req.op === '^') return semverGte(cur, req);
+  if (req.op === '~') {
+    // tilde: same major.minor, patch >= required
+    return cur.major === req.major && cur.minor === req.minor && cur.patch >= req.patch;
+  }
+  // >=
+  return semverGte(cur, req);
+}
+
+function checkEngines(index) {
+  const warnings = [];
+  const nodeConstraint = index?.skills?.flatMap(s => s.engines?.node ? [s.engines.node] : []).pop();
+  // Check each skill with an engines constraint
+  for (const skill of index.skills || []) {
+    if (!skill.engines?.node) continue;
+    if (!checkEngineRange(process.version, skill.engines.node)) {
+      warnings.push(`${skill.id}: requires node ${skill.engines.node}, current is ${process.version}`);
+    }
+  }
+  return warnings;
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 function main(options) {
   const opts = options || {};
   let schemaPath = opts.schemaPath || DEFAULT_SCHEMA;
   const files = opts.files || [];
+  const checkEnginesFlag = opts.checkEngines || false;
 
   // If called standalone (no options), parse from argv
   if (!opts || Object.keys(opts).length === 0) {
@@ -134,10 +184,13 @@ function main(options) {
     for (let i = 0; i < args.length; i++) {
       if (args[i] === '--schema' && i + 1 < args.length) {
         schemaPath = path.resolve(args[++i]);
+      } else if (args[i] === '--check-engines') {
+        // flag handled below via opts
       } else {
         files.push(path.resolve(args[i]));
       }
     }
+    if (args.includes('--check-engines')) opts.checkEngines = true;
   }
 
   // Load schema
@@ -175,6 +228,14 @@ function main(options) {
       }
       totalErrors += errors.length;
     }
+
+    // Engine compatibility warnings (non-fatal)
+    if (checkEnginesFlag) {
+      const warnings = checkEngines(data);
+      for (const w of warnings) {
+        console.log(`⚠ ${filePath}: ${w}`);
+      }
+    }
   }
 
   process.exit(totalErrors > 0 ? 1 : 0);
@@ -183,4 +244,4 @@ function main(options) {
 const isMain = process.argv[1] && (process.argv[1] === fileURLToPath(import.meta.url) || process.argv[1].endsWith('validate.mjs'));
 if (isMain) main({});
 
-export { main, validateAgainstSchema };
+export { main, validateAgainstSchema, parseSemverRange, checkEngines };

@@ -81,17 +81,72 @@ function parseFrontmatter(text) {
   if (!match) return {};
   const yaml = match[1];
   const obj = {};
+  const metadata = {};
+  let inMetadata = false;
+  let metadataBaseIndent = -1;
   for (const line of yaml.split('\n')) {
+    const indentMatch = line.match(/^(\s*)(.*)$/);
+    if (!indentMatch) continue;
+    const [, indent, content] = indentMatch;
+    const trimmed = content.trim();
+
+    if (trimmed.startsWith('metadata:')) {
+      inMetadata = true;
+      metadataBaseIndent = indent.length;
+      continue;
+    }
+    if (inMetadata) {
+      if (trimmed === '' || (indent.length <= metadataBaseIndent && trimmed !== '')) {
+        inMetadata = false;
+        continue;
+      }
+      // Parse key:value at metadata level (handle nested objects via dot notation)
+      const kv = trimmed.match(/^(\w+)\s*:\s*(.*)$/);
+      if (kv) {
+        let val = kv[2].trim();
+        if ((val.startsWith('"') && val.endsWith('"')) ||
+            (val.startsWith("'") && val.endsWith("'"))) {
+          val = val.slice(1, -1);
+        }
+        // Check if next lines are nested (further indented)
+        if (val === '') {
+          // Nested object — look ahead for sub-keys
+          const subObj = {};
+          let j = yaml.split('\n').indexOf(line) + 1;
+          while (j < yaml.split('\n').length) {
+            const nextLine = yaml.split('\n')[j];
+            const nextIndentMatch = nextLine.match(/^(\s+)/);
+            if (!nextIndentMatch || nextIndentMatch[1].length <= indent.length) break;
+            const subKv = nextLine.trim().match(/^(\w+)\s*:\s*(.*)$/);
+            if (subKv) {
+              let subVal = subKv[2].trim();
+              if ((subVal.startsWith('"') && subVal.endsWith('"')) ||
+                  (subVal.startsWith("'") && subVal.endsWith("'"))) {
+                subVal = subVal.slice(1, -1);
+              }
+              subObj[subKv[1]] = subVal;
+            }
+            j++;
+          }
+          if (Object.keys(subObj).length > 0) val = subObj;
+        }
+        metadata[kv[1]] = val;
+      }
+      continue;
+    }
+
     const kv = line.match(/^\s*(\w+)\s*:\s*(.+)$/);
     if (kv) {
       let val = kv[2].trim();
-      // Strip quotes
       if ((val.startsWith('"') && val.endsWith('"')) ||
           (val.startsWith("'") && val.endsWith("'"))) {
         val = val.slice(1, -1);
       }
       obj[kv[1]] = val;
     }
+  }
+  if (Object.keys(metadata).length > 0) {
+    obj.metadata = metadata;
   }
   return obj;
 }
@@ -117,6 +172,9 @@ function scanDir(skillsDir) {
     const id = frontmatter.name || dirent.name;
     const desc = frontmatter.description || '';
 
+    const skillVersion = frontmatter.metadata?.version || null;
+    const skillEngines = frontmatter.metadata?.engines || null;
+
     entries.push({
       id,
       when: desc,
@@ -125,6 +183,8 @@ function scanDir(skillsDir) {
       priority: 'medium',
       usage_count: 0,
       last_used: null,
+      version: skillVersion,
+      engines: skillEngines,
     });
   }
   return entries;

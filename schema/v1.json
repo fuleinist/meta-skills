@@ -103,6 +103,22 @@
           "type": ["string", "null"],
           "format": "date-time",
           "description": "ISO-8601 timestamp when this skill was archived"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "description": "Semantic version of the skill (from SKILL.md metadata.version)"
+        },
+        "engines": {
+          "type": "object",
+          "description": "Runtime engine requirements (from SKILL.md metadata.engines)",
+          "properties": {
+            "node": {
+              "type": "string",
+              "description": "Node.js version constraint (e.g. '>=18.0.0')"
+            }
+          },
+          "additionalProperties": false
         }
       }
     }
