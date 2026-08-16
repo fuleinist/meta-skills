@@ -22,12 +22,17 @@ const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'meta-skills-test-'));
 const testSkillDir = path.join(tmpDir, 'skills');
 fs.mkdirSync(testSkillDir, { recursive: true });
 
-// Create a fake skill
+// Create a fake skill with metadata
 const testSkillPath = path.join(testSkillDir, 'test-skill', 'SKILL.md');
 fs.mkdirSync(path.dirname(testSkillPath), { recursive: true });
 fs.writeFileSync(testSkillPath, `---
 name: test-skill
 description: A test skill for smoke testing the global scanner
+metadata:
+  author: test
+  version: "1.2.3"
+  engines:
+    node: ">=18.0.0"
 ---
 
 # Test Skill
@@ -80,6 +85,8 @@ check('skill has path', skill && typeof skill.path === 'string');
 check('skill has priority', skill && skill.priority === 'medium');
 check('skill has usage_count', skill && skill.usage_count === 0);
 check('skill has last_used', skill && skill.last_used === null);
+check('skill has version', skill && skill.version === '1.2.3');
+check('skill has engines', skill && skill.engines && skill.engines.node === '>=18.0.0');
 
 // ── Test getConfigDir ─────────────────────────────────────────────────
 check('getConfigDir returns string', typeof scanner.getConfigDir() === 'string');
