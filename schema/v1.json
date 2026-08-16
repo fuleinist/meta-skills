@@ -135,8 +135,10 @@
           "type": ["object", "null"],
           "description": "Engine compatibility constraints (v0.1.1)",
           "properties": {
-            "meta-skills": { "type": "string" }
-          }
+            "meta-skills": { "type": "string" },
+            "node": { "type": "string", "description": "Node.js version constraint (e.g. '>=18.0.0')" }
+          },
+          "additionalProperties": true
         },
         "deprecated": {
           "type": ["boolean", "null"],

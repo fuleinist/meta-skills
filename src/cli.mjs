@@ -221,11 +221,13 @@ async function cmdValidate(args) {
   await ensureModules();
   const files = [];
   let schemaPath = null;
+  let checkEngines = false;
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--schema' && i + 1 < args.length) schemaPath = path.resolve(args[++i]);
+    else if (args[i] === '--check-engines') checkEngines = true;
     else files.push(path.resolve(args[i]));
   }
-  _validator.main({ files, schemaPath });
+  _validator.main({ files, schemaPath, checkEngines });
 }
 
 async function cmdSync(args) {
@@ -995,6 +997,7 @@ function showHelp() {
   console.log('  maintain                   Full maintenance run (scan + aggregate + improve)');
   console.log('  maintain --from-failures   Include failure analysis in maintenance run');
   console.log('  validate <file>            Validate a meta-skills JSON file');
+  console.log('  validate <file> --check-engines  Validate + check engine compatibility (v0.1.1)');
   console.log('  propose [--since <days>]   Analyze failures and generate improvement proposals (v1.3)');
   console.log('  propose list               List pending proposals');
   console.log('  propose apply <id>         View a proposal');
