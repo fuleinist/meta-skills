@@ -237,6 +237,58 @@ export function validateDependencies(index) {
   return { valid: errors.length === 0 && cycles.length === 0, errors, cycles };
 }
 
+/**
+ * Resolve transitive dependencies for a skill in dependency-first order.
+ * Used at activation time (v0.1.3) to auto-load required sub-skills.
+ *
+ * @param {string} skillId — root skill to resolve
+ * @param {object} index — meta-skills index (skills + stale lists searched)
+ * @returns {{ order: string[], missing: string[], cycle: string[] | null }}
+ *   order  — transitive deps, DFS post-order (deepest first), root excluded
+ *   missing — required ids absent from the index
+ *   cycle  — first cycle encountered as a path array, else null
+ */
+export function resolveDependencies(skillId, index) {
+  const order = [];
+  const missing = [];
+  let cycle = null;
+
+  const skillMap = new Map();
+  for (const skill of [...(index?.skills || []), ...(index?.stale || [])]) {
+    if (skill && skill.id) skillMap.set(skill.id, skill);
+  }
+
+  const done = new Set();
+  const stack = new Set();
+
+  function visit(id, trail) {
+    if (cycle) return;
+    if (stack.has(id)) {
+      const start = trail.indexOf(id);
+      cycle = trail.slice(start).concat(id);
+      return;
+    }
+    if (done.has(id)) return;
+    if (!skillMap.has(id)) {
+      if (!missing.includes(id)) missing.push(id);
+      return;
+    }
+    stack.add(id);
+    trail.push(id);
+    for (const dep of skillMap.get(id).requires || []) {
+      visit(dep, trail);
+      if (cycle) return;
+    }
+    trail.pop();
+    stack.delete(id);
+    done.add(id);
+    if (id !== skillId) order.push(id);
+  }
+
+  visit(skillId, []);
+  return { order, missing, cycle };
+}
+
 // ── CLI ───────────────────────────────────────────────────────────────
 
 function main() {

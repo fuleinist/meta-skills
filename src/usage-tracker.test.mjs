@@ -30,6 +30,7 @@ fs.writeFileSync(globalJson, JSON.stringify({
   skills: [
     { id: 'git-commits', when: 'writing commits', why: 'conventional commits', path: '/tmp/skills/git/SKILL.md', priority: 'medium', usage_count: 0, last_used: null },
     { id: 'code-review', when: 'reviewing PRs', why: 'structured review', path: '/tmp/skills/review/SKILL.md', priority: 'medium', usage_count: 0, last_used: null },
+    { id: 'deploy-app', when: 'deploying', why: 'composite deploy', path: '/tmp/skills/deploy/SKILL.md', priority: 'medium', usage_count: 0, last_used: null, requires: ['git-commits'] },
   ],
   stale: [],
 }, null, 2));
@@ -62,9 +63,9 @@ function run(args) {
 
 // ── Test 1: Record ────────────────────────────────────────────────────
 console.log('\n--- Record ---');
-run(`record git-commits --log-dir "${logDir}"`);
-run(`record code-review --log-dir "${logDir}"`);
-run(`record git-commits --log-dir "${logDir}" --outcome failure`);
+run(`record git-commits --log-dir "${logDir}" --global-json "${globalJson}"`);
+run(`record code-review --log-dir "${logDir}" --global-json "${globalJson}"`);
+run(`record git-commits --log-dir "${logDir}" --global-json "${globalJson}" --outcome failure`);
 
 const logFiles = fs.readdirSync(logDir).filter(f => f.endsWith('.jsonl'));
 check('log file created', logFiles.length === 1);
@@ -77,6 +78,28 @@ const events = lines.map(l => JSON.parse(l));
 check('first event is git-commits', events[0].skill === 'git-commits');
 check('second event is code-review', events[1].skill === 'code-review');
 check('third event has outcome failure', events[2].outcome === 'failure');
+
+// ── Test 1b: Dependency auto-load (v0.1.3) ───────────────────────
+console.log('\n--- Dependency auto-load (v0.1.3) ---');
+const logDir2 = path.join(tmpDir, 'logs-deps');
+fs.mkdirSync(logDir2, { recursive: true });
+run(`record deploy-app --log-dir "${logDir2}" --global-json "${globalJson}"`);
+
+const depLogFiles = fs.readdirSync(logDir2).filter(f => f.endsWith('.jsonl'));
+const depLines = fs.readFileSync(path.join(logDir2, depLogFiles[0]), 'utf-8').trim().split('\n');
+const depEvents = depLines.map(l => JSON.parse(l));
+check('primary + 1 dependency event', depEvents.length === 2);
+check('dependency event targets git-commits', depEvents[1].skill === 'git-commits');
+check('dependency event marked source=dependency', depEvents[1].source === 'dependency');
+check('dependency event carries parent', depEvents[1].parent === 'deploy-app');
+
+const logDir3 = path.join(tmpDir, 'logs-nodeps');
+fs.mkdirSync(logDir3, { recursive: true });
+run(`record deploy-app --log-dir "${logDir3}" --global-json "${globalJson}" --no-deps`);
+const noDepsLines = fs.readdirSync(logDir3)
+  .filter(f => f.endsWith('.jsonl'))
+  .flatMap(f => fs.readFileSync(path.join(logDir3, f), 'utf-8').trim().split('\n'));
+check('--no-deps writes only primary event', noDepsLines.length === 1);
 
 // ── Test 2: Aggregate ─────────────────────────────────────────────────
 console.log('\n--- Aggregate ---');
