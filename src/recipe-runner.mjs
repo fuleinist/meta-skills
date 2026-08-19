@@ -32,6 +32,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { buildActivationEvents, todayLogFilename } from './bundle-manager.mjs';
+import { validateDependencies } from './semver-compat.mjs';
 
 // --------------------------------------------------------------------------
 // Errors
@@ -274,6 +275,28 @@ export function validateRecipe(recipe, index) {
     }
     if (step.on_failure != null && !FAILURE_BEHAVIORS.has(step.on_failure)) {
       errors.push(`step ${i + 1}: on_failure must be 'stop' or 'continue', got ${JSON.stringify(step.on_failure)}`);
+    }
+  }
+
+  if (errors.length > 0) {
+    throw new RecipeValidationError(
+      `recipe has ${errors.length} error(s): ${errors[0]}`,
+      errors
+    );
+  }
+
+  // v0.1.3 — static dependency-graph check (missing deps + DFS cycle detection)
+  // scoped to skills referenced by the recipe.
+  const referenced = new Set(recipe.steps.map(s => s.skill));
+  const depResult = validateDependencies(index);
+  for (const err of depResult.errors) {
+    // err format: "<id>" requires "<dep>" but it is not in the index
+    const m = err.match(/^"([^"]+)"/);
+    if (m && referenced.has(m[1])) errors.push(err);
+  }
+  for (const cyc of depResult.cycles) {
+    if (cyc.some(id => referenced.has(id))) {
+      errors.push(`dependency cycle detected: ${cyc.join(' → ')}`);
     }
   }
 

@@ -164,6 +164,8 @@ async function cmdRecord(args) {
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--outcome' && i + 1 < args.length) options.outcome = args[++i];
     else if (args[i] === '--log-dir' && i + 1 < args.length) options.logDir = path.resolve(args[++i]);
+    else if (args[i] === '--global-json' && i + 1 < args.length) options.globalJson = path.resolve(args[++i]);
+    else if (args[i] === '--no-deps') options.noDeps = true;
     else if (!options.skillId) options.skillId = args[i];
   }
   if (!options.skillId) { console.error('Î"Â£Ã1 missing skill-id'); process.exit(1); }

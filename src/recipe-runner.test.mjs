@@ -234,6 +234,43 @@ test('validateRecipe: empty steps throws', () => {
   assert.throws(() => validateRecipe({ steps: [] }, makeIndex()), RecipeValidationError);
 });
 
+test('validateRecipe: missing requires dep fails (v0.1.3)', () => {
+  const idx = makeIndex();
+  idx.skills.find(s => s.id === 'commit').requires = ['ghost-skill'];
+  const r = parseRecipe('step commit: commit it', 'recipe');
+  try {
+    validateRecipe(r, idx);
+    assert.fail('should have thrown');
+  } catch (err) {
+    assert.ok(err instanceof RecipeValidationError);
+    assert.ok(err.errors.some(e => e.includes('ghost-skill')));
+  }
+});
+
+test('validateRecipe: dependency cycle fails (v0.1.3)', () => {
+  const idx = makeIndex();
+  idx.skills.find(s => s.id === 'commit').requires = ['tag'];
+  idx.skills.find(s => s.id === 'tag').requires = ['commit'];
+  const r = parseRecipe('step commit: commit it', 'recipe');
+  try {
+    validateRecipe(r, idx);
+    assert.fail('should have thrown');
+  } catch (err) {
+    assert.ok(err instanceof RecipeValidationError);
+    assert.ok(err.errors.some(e => e.includes('cycle')));
+  }
+});
+
+test('validateRecipe: unrelated cycle outside recipe does not fail (v0.1.3)', () => {
+  const idx = makeIndex();
+  // Cycle between skills NOT referenced by the recipe.
+  idx.skills.push({ id: 'orphan-a', when: 'x', why: 'y', path: '/e', priority: 'low', requires: ['orphan-b'] });
+  idx.skills.push({ id: 'orphan-b', when: 'x', why: 'y', path: '/f', priority: 'low', requires: ['orphan-a'] });
+  const r = parseRecipe('step commit: commit it', 'recipe');
+  const result = validateRecipe(r, idx);
+  assert.ok(result.valid);
+});
+
 test('FAILURE_BEHAVIORS: contains stop and continue', () => {
   assert.ok(FAILURE_BEHAVIORS.has('stop'));
   assert.ok(FAILURE_BEHAVIORS.has('continue'));

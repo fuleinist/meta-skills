@@ -4,7 +4,7 @@
  * Tests for semver-compat.mjs (v0.1.1)
  */
 
-import { parseSemver, compareSemver, satisfies, checkEngines, checkDeprecation, validateDependencies } from './semver-compat.mjs';
+import { parseSemver, compareSemver, satisfies, checkEngines, checkDeprecation, validateDependencies, resolveDependencies } from './semver-compat.mjs';
 
 let passed = 0;
 let failed = 0;
@@ -69,6 +69,46 @@ check('missing dep reports error', validateDependencies(missingDep).errors.lengt
 
 const cycleIdx = { skills: [{ id: 'a', requires: ['b'] }, { id: 'b', requires: ['a'] }], stale: [] };
 check('cycle detected', validateDependencies(cycleIdx).cycles.length > 0);
+
+// ── resolveDependencies (v0.1.3) ────────────────────────────────
+console.log('\nresolveDependencies:');
+const chainIdx = { skills: [
+  { id: 'deploy-app', requires: ['git-commits', 'ssh-management'] },
+  { id: 'git-commits' },
+  { id: 'ssh-management', requires: ['ssh-keys'] },
+  { id: 'ssh-keys' },
+], stale: [] };
+const chain = resolveDependencies('deploy-app', chainIdx);
+check('chain resolves all deps', chain.order.length === 3);
+check('deepest dep first (ssh-keys before ssh-management)',
+  chain.order.indexOf('ssh-keys') < chain.order.indexOf('ssh-management'));
+check('root excluded from order', !chain.order.includes('deploy-app'));
+check('no missing in valid graph', chain.missing.length === 0);
+check('no cycle in valid graph', chain.cycle === null);
+
+const diamondIdx = { skills: [
+  { id: 'top', requires: ['left', 'right'] },
+  { id: 'left', requires: ['base'] },
+  { id: 'right', requires: ['base'] },
+  { id: 'base' },
+], stale: [] };
+const diamond = resolveDependencies('top', diamondIdx);
+check('diamond dedupes shared dep', diamond.order.filter(id => id === 'base').length === 1);
+
+const missingIdx = { skills: [{ id: 'a', requires: ['ghost'] }], stale: [] };
+const missingRes = resolveDependencies('a', missingIdx);
+check('missing dep reported', missingRes.missing.includes('ghost'));
+
+const cycIdx = { skills: [
+  { id: 'x', requires: ['y'] },
+  { id: 'y', requires: ['x'] },
+], stale: [] };
+const cycRes = resolveDependencies('x', cycIdx);
+check('cycle detected without hang', Array.isArray(cycRes.cycle) && cycRes.cycle.length >= 2);
+
+check('no-requires skill resolves empty', resolveDependencies('base', chainIdx).order.length === 0);
+const staleIdx = { skills: [{ id: 'a', requires: ['stale-dep'] }], stale: [{ id: 'stale-dep' }] };
+check('deps in stale list resolve', resolveDependencies('a', staleIdx).order.includes('stale-dep'));
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);

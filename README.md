@@ -147,9 +147,11 @@ This:
 ### Daily Use
 
 ```bash
-# Record skill activation
+# Record skill activation (v0.1.3: required sub-skills are auto-loaded
+# and logged as dependency activations; pass --no-deps to skip)
 meta-skills record git-commits
 meta-skills record code-review --outcome failure
+meta-skills record deploy-app --no-deps
 
 # Aggregate usage logs into global.json
 meta-skills aggregate
@@ -363,6 +365,34 @@ The dashboard adds a "Token Budget (v1.7)" panel showing current vs cap, top-3 o
 - EvoSkill value-density evaluation
 - v1.6 quality scoring (`--use-quality` integration)
 - v0.4 self-improve demotion rules
+## Skill Dependency Graphs (v0.1.3)
+
+Skills can declare dependencies on other skills via a `requires` array in the index entry:
+
+```json
+{
+  "id": "deploy-app",
+  "requires": ["git-commits", "ssh-management"]
+}
+```
+
+**Auto-load on activation.** `meta-skills record <skill>` resolves transitive
+`requires` (dependency-first order, deduped) and logs each sub-skill as an
+activation event with `source: "dependency"` and `parent: "<skill>"`, so agents
+know which SKILL.md files to load alongside the primary skill. Use `--no-deps`
+to record only the primary skill.
+
+**Static validation.**
+- `meta-skills semver deps` — full-graph check: missing dependencies + DFS cycle detection.
+- `meta-skills recipe validate <file>` — same checks scoped to the skills a recipe references.
+
+Design notes:
+
+- **DFS post-order resolution** — deepest dependency loaded first; root skill excluded from the auto-load list.
+- **Cycle-safe** — recursion-stack guard reports the cycle path instead of hanging.
+- **Backward compatible** — record still succeeds when global.json is missing or the skill has no `requires`.
+- **Zero new dependencies.**
+
 ## Why JSON?
 
 - **Parsable by any agent** - no YAML frontmatter to extract
@@ -400,7 +430,7 @@ The dashboard adds a "Token Budget (v1.7)" panel showing current vs cap, top-3 o
 
 - [x] **v0.1.2 - Git-style rollback ledger** - Maintain `~/.meta-skills/history.jsonl` transaction log tracking prior states of global.json before mutations. `meta-skills rollback --steps <n>` restores index to previous known-good state. Safety net for autonomous evolution. *Inspired by: git reflog, EvoSkill mutation lineage tracking.*
 
-- [ ] **v0.1.3 - Declarative skill dependency graphs** - Add `requires` array to skill metadata schema. When activating a skill (e.g., `deploy-app`), the system auto-loads required sub-skills (e.g., `git-commits`, `ssh-management`). Static cycle detection via DFS in `meta-skills recipe validate`. *Inspired by: npm dependencies, v1.8 recipe chains, Make/Taskfile workflow patterns.*
+- [x] **v0.1.3 - Declarative skill dependency graphs** - Add `requires` array to skill metadata schema. When activating a skill (e.g., `deploy-app`), the system auto-loads required sub-skills (e.g., `git-commits`, `ssh-management`). Static cycle detection via DFS in `meta-skills recipe validate`. *Inspired by: npm dependencies, v1.8 recipe chains, Make/Taskfile workflow patterns.*
 
 - [ ] **v0.1.4 - Fine-grained empirical token telemetry** - Replace heuristic token estimates (chars/4) with empirical usage tracking. `meta-skills record <skill> --tokens <n>` captures exact tokens consumed during session. Iteratively tunes value-density formula with real-world data. *Inspired by: OpenAI token counting, v1.7 budget optimizer accuracy.*
 
