@@ -14,6 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseSemver, checkEngines } from './semver-compat.mjs';
+import { validatePermissions } from './permissions.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_SCHEMA = path.resolve(__dirname, '..', 'schema', 'v1.json');
@@ -240,7 +241,23 @@ function main(options) {
       }
     }
 
-    if (errors.length === 0 && semverIssues.length === 0) {
+    // v0.1.5 — permissions manifest validation
+    const permIssues = [];
+    if (Array.isArray(data.skills)) {
+      for (const skill of data.skills) {
+        const permResult = validatePermissions(skill);
+        if (!permResult.valid) {
+          for (const inv of permResult.invalid) {
+            permIssues.push(`[${skill.id}] ${inv}`);
+          }
+          for (const unk of permResult.unknown) {
+            permIssues.push(`[${skill.id}] unknown permission "${unk}"`);
+          }
+        }
+      }
+    }
+
+    if (errors.length === 0 && semverIssues.length === 0 && permIssues.length === 0) {
       console.log(`✓ ${filePath}: valid`);
     } else {
       if (errors.length > 0) {
@@ -256,6 +273,13 @@ function main(options) {
           console.log(`    ${w}`);
         }
         totalErrors += semverIssues.length;
+      }
+      if (permIssues.length > 0) {
+        console.log(`  ✗ ${permIssues.length} permission error(s):`);
+        for (const p of permIssues) {
+          console.log(`    ${p}`);
+        }
+        totalErrors += permIssues.length;
       }
     }
 

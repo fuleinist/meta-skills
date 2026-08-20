@@ -458,7 +458,7 @@ Design notes:
 
 - [x] **v0.1.4 - Fine-grained empirical token telemetry** - Replace heuristic token estimates (chars/4) with empirical usage tracking. `meta-skills record <skill> --tokens <n>` captures exact tokens consumed during session. Iteratively tunes value-density formula with real-world data. *Inspired by: OpenAI token counting, v1.7 budget optimizer accuracy.*
 
-- [ ] **v0.1.5 - Capabilities & permissions manifest** - Declarative `permissions` block in skill frontmatter cataloging authorized access (`fs-read`, `fs-write`, `network`, `shell-exec`). Agent config files (CLAUDE.md, AGENTS.md) instruct agents to decline execution if actions exceed declared permissions. *Inspired by: POSIX capabilities, Docker security model, agent safety best practices.*
+- [x] **v0.1.5 - Capabilities & permissions manifest** - Declarative `permissions` block in skill frontmatter cataloging authorized access (`fs-read`, `fs-write`, `network`, `shell-exec`, `env-read`, `process-exec`). Validated via `validatePermissions()`, capability checks via `canPerform()`, agent config injection via `summarizePermissions()`. *Inspired by: POSIX capabilities, Docker security model, agent safety best practices.*
 
 - [ ] **v0.1.6 - Live skill hot-reloading** - Background file watcher (`fs.watch`) detects changes to registered SKILL.md files during active sessions, automatically hot-reloading in-memory agent index. Integrates into dashboard server or maintenance task. Zero manual re-indexing required. *Inspired by: webpack HMR, nodemon, developer experience patterns.*
 
