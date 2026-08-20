@@ -101,6 +101,43 @@ const noDepsLines = fs.readdirSync(logDir3)
   .flatMap(f => fs.readFileSync(path.join(logDir3, f), 'utf-8').trim().split('\n'));
 check('--no-deps writes only primary event', noDepsLines.length === 1);
 
+// ── Test 1c: Empirical token telemetry (v0.1.4) ─────────────────
+console.log('\n--- Empirical token telemetry (v0.1.4) ---');
+const logDir4 = path.join(tmpDir, 'logs-tokens');
+fs.mkdirSync(logDir4, { recursive: true });
+const globalJson4 = path.join(tmpDir, 'global4.json');
+fs.writeFileSync(globalJson4, JSON.stringify({
+  $schema: 'https://meta-skills.dev/schema/v1.json',
+  version: '1.0',
+  generated: '2026-06-24T00:00:00.000Z',
+  source: 'global',
+  skills: [
+    { id: 'git-commits', when: 'writing commits', why: 'conventional commits', path: '/tmp/skills/git/SKILL.md', priority: 'medium', usage_count: 0, last_used: null },
+    { id: 'code-review', when: 'reviewing PRs', why: 'structured review', path: '/tmp/skills/review/SKILL.md', priority: 'medium', usage_count: 0, last_used: null },
+  ],
+  stale: [],
+}, null, 2));
+
+run(`record git-commits --tokens 800 --log-dir "${logDir4}" --global-json "${globalJson4}"`);
+run(`record git-commits --tokens 1000 --log-dir "${logDir4}" --global-json "${globalJson4}"`);
+run(`record git-commits --tokens 900 --log-dir "${logDir4}" --global-json "${globalJson4}"`);
+run(`record code-review --log-dir "${logDir4}" --global-json "${globalJson4}"`);
+
+const tokLines = fs.readdirSync(logDir4)
+  .filter(f => f.endsWith('.jsonl'))
+  .flatMap(f => fs.readFileSync(path.join(logDir4, f), 'utf-8').trim().split('\n'));
+const tokEvents = tokLines.map(l => JSON.parse(l));
+check('token events recorded (4)', tokEvents.length === 4);
+check('token value persisted on event', tokEvents[0].tokens === 800);
+check('event without --tokens omits field', !('tokens' in tokEvents[3]));
+
+run(`aggregate --global-json "${globalJson4}" --log-dir "${logDir4}" --out "${globalJson4}"`);
+const updated4 = JSON.parse(fs.readFileSync(globalJson4, 'utf-8'));
+const git4 = updated4.skills.find(s => s.id === 'git-commits');
+const review4 = updated4.skills.find(s => s.id === 'code-review');
+check('empirical_tokens = avg(800,1000,900) = 900', git4.empirical_tokens === 900);
+check('skill without token data has no empirical_tokens', !('empirical_tokens' in review4));
+
 // ── Test 2: Aggregate ─────────────────────────────────────────────────
 console.log('\n--- Aggregate ---');
 run(`aggregate --global-json "${globalJson}" --log-dir "${logDir}" --out "${globalJson}"`);

@@ -15,6 +15,8 @@ import os from 'node:os';
 
 import {
   estimateIndexTokens,
+  effectiveIndexTokens,
+  tokenSource,
   estimateSkillTokens,
   totalActiveTokens,
   valueDensity,
@@ -721,4 +723,74 @@ test('buildBudgetPanel: unfixable=true when only high-priority skills remain ove
   const panel = buildBudgetPanel({ skills }, { maxTokens: 1 });
   assert.equal(panel.unfixable, true);
   assert.equal(panel.suggestions.length, 0);
+});
+
+// ---------------------------------------------------------------------------
+// v0.1.4 — empirical token telemetry
+// ---------------------------------------------------------------------------
+
+test('effectiveIndexTokens: prefers empirical_tokens over heuristic', () => {
+  const entry = { ...SKILL_MEDIUM_USED, empirical_tokens: 321 };
+  assert.equal(effectiveIndexTokens(entry), 321);
+});
+
+test('effectiveIndexTokens: falls back to heuristic when empirical missing', () => {
+  assert.equal(effectiveIndexTokens(SKILL_MEDIUM_USED), estimateIndexTokens(SKILL_MEDIUM_USED));
+});
+
+test('effectiveIndexTokens: ignores zero/negative/non-finite empirical', () => {
+  const base = estimateIndexTokens(SKILL_MEDIUM_USED);
+  assert.equal(effectiveIndexTokens({ ...SKILL_MEDIUM_USED, empirical_tokens: 0 }), base);
+  assert.equal(effectiveIndexTokens({ ...SKILL_MEDIUM_USED, empirical_tokens: -5 }), base);
+  assert.equal(effectiveIndexTokens({ ...SKILL_MEDIUM_USED, empirical_tokens: NaN }), base);
+  assert.equal(effectiveIndexTokens({ ...SKILL_MEDIUM_USED, empirical_tokens: 'lots' }), base);
+});
+
+test('effectiveIndexTokens: rounds fractional empirical values, floors at 1', () => {
+  assert.equal(effectiveIndexTokens({ ...SKILL_MEDIUM_USED, empirical_tokens: 12.6 }), 13);
+  assert.equal(effectiveIndexTokens({ ...SKILL_MEDIUM_USED, empirical_tokens: 0.4 }), 1);
+});
+
+test('tokenSource: reports empirical vs heuristic', () => {
+  assert.equal(tokenSource({ ...SKILL_MEDIUM_USED, empirical_tokens: 100 }), 'empirical');
+  assert.equal(tokenSource(SKILL_MEDIUM_USED), 'heuristic');
+  assert.equal(tokenSource({ ...SKILL_MEDIUM_USED, empirical_tokens: 0 }), 'heuristic');
+});
+
+test('valueDensity: empirical tokens feed the denominator (higher measured cost = lower density)', () => {
+  const heuristic = valueDensity(SKILL_MEDIUM_USED);
+  const cheap = valueDensity({ ...SKILL_MEDIUM_USED, empirical_tokens: 1 });
+  const costly = valueDensity({ ...SKILL_MEDIUM_USED, empirical_tokens: 10000 });
+  assert.ok(cheap > heuristic, 'cheaper-than-heuristic empirical should raise density');
+  assert.ok(costly < heuristic, 'costlier-than-heuristic empirical should lower density');
+});
+
+test('valueDensity: exact value uses empirical denominator', () => {
+  const entry = { ...SKILL_LOW_UNUSED, priority: 'high', usage_count: 0, empirical_tokens: 300 };
+  // weight=3, usageFactor=1, quality=1, tokens=300 → 0.01
+  assert.equal(valueDensity(entry), 0.01);
+});
+
+test('generateSuggestions: ordering follows empirical-based density', () => {
+  // Two medium skills, identical shape. 'bloat' has huge empirical cost so its
+  // density is lower → it must be demoted first even if its heuristic size is small.
+  const lean = { ...SKILL_MEDIUM_USED, id: 'lean', usage_count: 1, empirical_tokens: 10 };
+  const bloat = { ...SKILL_MEDIUM_USED, id: 'bloat', usage_count: 1, empirical_tokens: 5000 };
+  // Budget accounting stays heuristic (index size), so set a cap that forces
+  // exactly one demotion: cap just under the sum of both heuristic sizes.
+  const both = estimateIndexTokens(lean) + estimateIndexTokens(bloat);
+  const { suggestions } = generateSuggestions([lean, bloat], { maxTokens: both - 1 });
+  assert.equal(suggestions.length, 1);
+  assert.equal(suggestions[0].id, 'bloat');
+});
+
+test('empirical round-trip: aggregate-style averages flow into density ranking', () => {
+  // Simulate what cmdAggregate writes: average of recorded session tokens.
+  const recorded = [800, 1000, 900];
+  const avg = Math.round(recorded.reduce((a, b) => a + b, 0) / recorded.length);
+  const skill = { ...SKILL_LOW_UNUSED, usage_count: 5, empirical_tokens: avg };
+  assert.equal(avg, 900);
+  // density = (1 * (1+ln(6)) * 1) / 900
+  const expected = (1 * (1 + Math.log1p(5))) / 900;
+  assert.ok(Math.abs(valueDensity(skill) - expected) < 1e-9);
 });

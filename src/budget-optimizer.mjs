@@ -68,9 +68,9 @@ export function estimateIndexTokens(entry) {
   if (!entry || typeof entry !== 'object') return 0;
 
   // Strip volatile / high-cardinality fields that don't add to the agent's
-  // *index* decision (usage_count, last_used — the agent cares about
-  // when/why/path/priority, not usage telemetry which is internal).
-  const { usage_count, last_used, ...indexOnly } = entry;
+  // *index* decision (usage_count, last_used, empirical_tokens — the agent
+  // cares about when/why/path/priority, not usage telemetry which is internal).
+  const { usage_count, last_used, empirical_tokens, ...indexOnly } = entry;
 
   // Empty entry (no indexable fields) = 0 tokens.
   const hasContent =
@@ -82,6 +82,45 @@ export function estimateIndexTokens(entry) {
   // to ~52 chars of syntax overhead, which the prior constant missed.
   const json = JSON.stringify(indexOnly);
   return Math.max(1, Math.ceil(json.length / CHARS_PER_TOKEN));
+}
+
+/**
+ * v0.1.4 - Effective token cost of a skill's index entry.
+ *
+ * Prefers empirical telemetry (`empirical_tokens`, the running average of
+ * session token counts recorded via `meta-skills record <skill> --tokens <n>`
+ * and folded in by `meta-skills aggregate`). Falls back to the chars/4
+ * heuristic when no empirical data exists yet.
+ *
+ * @param {object} entry - skill entry (may carry empirical_tokens)
+ * @returns {number} effective tokens (>= 1 for any non-empty entry)
+ */
+export function effectiveIndexTokens(entry) {
+  if (
+    entry &&
+    typeof entry.empirical_tokens === 'number' &&
+    Number.isFinite(entry.empirical_tokens) &&
+    entry.empirical_tokens > 0
+  ) {
+    return Math.max(1, Math.round(entry.empirical_tokens));
+  }
+  return estimateIndexTokens(entry);
+}
+
+/**
+ * v0.1.4 - Which token source feeds an entry's cost estimate.
+ * @param {object} entry
+ * @returns {'empirical'|'heuristic'}
+ */
+export function tokenSource(entry) {
+  return (
+    entry &&
+    typeof entry.empirical_tokens === 'number' &&
+    Number.isFinite(entry.empirical_tokens) &&
+    entry.empirical_tokens > 0
+  )
+    ? 'empirical'
+    : 'heuristic';
 }
 
 /**
@@ -165,7 +204,8 @@ export function valueDensity(entry, options = {}) {
     qualityMultiplier = Math.max(QUALITY_MULTIPLIER_MIN, Math.min(QUALITY_MULTIPLIER_MAX, raw));
   }
 
-  const tokens = estimateIndexTokens(entry);
+  // v0.1.4: prefer empirical token telemetry over the chars/4 heuristic.
+  const tokens = effectiveIndexTokens(entry);
   if (tokens <= 0) return 0;
 
   return (weight * usageFactor * qualityMultiplier) / tokens;
