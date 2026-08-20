@@ -365,6 +365,30 @@ The dashboard adds a "Token Budget (v1.7)" panel showing current vs cap, top-3 o
 - EvoSkill value-density evaluation
 - v1.6 quality scoring (`--use-quality` integration)
 - v0.4 self-improve demotion rules
+## Empirical Token Telemetry (v0.1.4)
+
+Heuristic token estimates (chars/4) are only as good as the tokenizer they
+approximate. v0.1.4 closes the loop with measured data:
+
+```bash
+# Record a skill activation with the exact tokens it consumed this session
+meta-skills record deploy-app --tokens 1840
+
+# Aggregate folds recorded tokens into the index
+meta-skills aggregate
+```
+
+`aggregate` maintains `empirical_tokens` on each skill: the rounded average of
+every recorded `--tokens` value. The v1.7 budget optimizer's value-density
+formula consumes it directly — when `empirical_tokens > 0` it replaces the
+heuristic estimate in the denominator; otherwise the chars/4 fallback applies.
+Budget caps themselves stay index-size-based (literal bytes the agent reads),
+so empirical data refines *ranking* without distorting the cap accounting.
+
+Inspect coverage with `meta-skills status` (`empiricalTokenTracking` counts
+skills carrying measured data). Skills gain telemetry incrementally as you
+record — no migration required.
+
 ## Skill Dependency Graphs (v0.1.3)
 
 Skills can declare dependencies on other skills via a `requires` array in the index entry:
@@ -432,7 +456,7 @@ Design notes:
 
 - [x] **v0.1.3 - Declarative skill dependency graphs** - Add `requires` array to skill metadata schema. When activating a skill (e.g., `deploy-app`), the system auto-loads required sub-skills (e.g., `git-commits`, `ssh-management`). Static cycle detection via DFS in `meta-skills recipe validate`. *Inspired by: npm dependencies, v1.8 recipe chains, Make/Taskfile workflow patterns.*
 
-- [ ] **v0.1.4 - Fine-grained empirical token telemetry** - Replace heuristic token estimates (chars/4) with empirical usage tracking. `meta-skills record <skill> --tokens <n>` captures exact tokens consumed during session. Iteratively tunes value-density formula with real-world data. *Inspired by: OpenAI token counting, v1.7 budget optimizer accuracy.*
+- [x] **v0.1.4 - Fine-grained empirical token telemetry** - Replace heuristic token estimates (chars/4) with empirical usage tracking. `meta-skills record <skill> --tokens <n>` captures exact tokens consumed during session. Iteratively tunes value-density formula with real-world data. *Inspired by: OpenAI token counting, v1.7 budget optimizer accuracy.*
 
 - [ ] **v0.1.5 - Capabilities & permissions manifest** - Declarative `permissions` block in skill frontmatter cataloging authorized access (`fs-read`, `fs-write`, `network`, `shell-exec`). Agent config files (CLAUDE.md, AGENTS.md) instruct agents to decline execution if actions exceed declared permissions. *Inspired by: POSIX capabilities, Docker security model, agent safety best practices.*
 
