@@ -33,11 +33,11 @@ const PKG = JSON.parse(fs.readFileSync(path.resolve(__dirname, '..', 'package.js
 
 // Î"Ã¶Ã‡Î"Ã¶Ã‡ Import all modules directly (no execSync) Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡
 
-let _scanner, _projectScanner, _tracker, _improver, _maintainer, _validator, _syncer, _marketplace, _failureAnalyzer, _dashboard, _agentConfig, _qualityScorer, _budgetOptimizer, _bundleManager, _recipeRunner, _semanticSearch, _rollback, _semver, _evolution;
+let _scanner, _projectScanner, _tracker, _improver, _maintainer, _validator, _syncer, _marketplace, _failureAnalyzer, _dashboard, _agentConfig, _qualityScorer, _budgetOptimizer, _bundleManager, _recipeRunner, _semanticSearch, _rollback, _semver, _evolution, _deprecation;
 
 async function ensureModules() {
   if (!_scanner) {
-    const [scannerMod, projectMod, trackerMod, improveMod, maintMod, validMod, syncMod, mpMod, faMod, dashMod, acMod, qsMod, boMod, bmMod, rrMod] = await Promise.all([
+    const [scannerMod, projectMod, trackerMod, improveMod, maintMod, validMod, syncMod, mpMod, faMod, dashMod, acMod, qsMod, boMod, bmMod, rrMod, depMod] = await Promise.all([
       import(pathToFileURL(path.resolve(__dirname, 'global-scanner.mjs')).href),
       import(pathToFileURL(path.resolve(__dirname, 'project-scanner.mjs')).href),
       import(pathToFileURL(path.resolve(__dirname, 'usage-tracker.mjs')).href),
@@ -53,6 +53,7 @@ async function ensureModules() {
       import(pathToFileURL(path.resolve(__dirname, 'budget-optimizer.mjs')).href),
       import(pathToFileURL(path.resolve(__dirname, 'bundle-manager.mjs')).href),
       import(pathToFileURL(path.resolve(__dirname, 'recipe-runner.mjs')).href),
+      import(pathToFileURL(path.resolve(__dirname, 'deprecation.mjs')).href),
     ]);
     _scanner = scannerMod;
     _projectScanner = projectMod;
@@ -69,6 +70,7 @@ async function ensureModules() {
     _budgetOptimizer = boMod;
     _bundleManager = bmMod;
     _recipeRunner = rrMod;
+    _deprecation = depMod;
   }
   if (!_semanticSearch) {
     _semanticSearch = await import(pathToFileURL(path.resolve(__dirname, 'semantic-search.mjs')).href);
@@ -984,6 +986,49 @@ async function cmdRecipe(args) {
   process.exit(1);
 }
 
+async function cmdDeprecate(args) {
+  await ensureModules();
+  const sub = args[0];
+  const rest = args.slice(1);
+
+  if (sub === 'list') {
+    const { path: gp, index } = readGlobalJsonOrExit(rest, 'deprecate list');
+    const deprecated = _deprecation.findDeprecatedActive(index);
+    if (deprecated.length === 0) {
+      console.log('No deprecated skills in active index');
+    } else {
+      console.log(`Deprecated skills (${deprecated.length}):`);
+      for (const s of deprecated) {
+        const succ = s.successor ? ` -> ${s.successor}` : ' (no successor)';
+        console.log(`  ${s.id}${succ}`);
+      }
+    }
+    return;
+  }
+
+  // Default: deprecate <skill-id> [successor-id]
+  const skillId = sub;
+  const successor = rest[0];
+  if (!skillId) {
+    console.log(`Usage:
+  meta-skills deprecate <skill-id> [successor-id]
+  meta-skills deprecate list
+  meta-skills undeprecate <skill-id>`);
+    return;
+  }
+  // Build a clean args list for readGlobalJsonOrExit: skill-id + any flags
+  const gjArgs = [skillId];
+  if (successor) gjArgs.push(successor);
+  const { path: gp } = readGlobalJsonOrExit(gjArgs, 'deprecate');
+  const ok = _deprecation.deprecateSkill(gp, skillId, successor);
+  if (ok) {
+    console.log(`✓ ${skillId} marked as deprecated${successor ? ` -> ${successor}` : ''}`);
+  } else {
+    console.error(`✗ skill '${skillId}' not found in index`);
+    process.exit(1);
+  }
+}
+
 function showHelp() {
   console.log(`meta-skills v${PKG.version} - Agent Skill Index`);
   console.log('');
@@ -1043,6 +1088,9 @@ function showHelp() {
   console.log('    semver deps [--global-json <path>]');
   console.log('    semver check-deprecated [--global-json <path>]');
   console.log('  evolve <baseline|propose|review|approve|reject|--all>  Autonomous skill evolution (v0.1)');
+  console.log('  deprecate <skill-id> [successor-id]   Mark skill as deprecated (v0.1.7)');
+  console.log('  deprecate list                        List deprecated active skills');
+  console.log('  undeprecate <skill-id>                Remove deprecated status');
   console.log('    evolve baseline              Run baseline quality measurement');
   console.log('    evolve propose [--dry-run]   Generate mutation proposals');
   console.log('    evolve review                List pending proposals');
@@ -1120,6 +1168,7 @@ async function main() {
       case 'rollback':     await cmdRollback(rest); break;
       case 'semver':       await cmdSemver(rest); break;
       case 'evolve':       await cmdEvolve(rest); break;
+      case 'deprecate':    await cmdDeprecate(rest); break;
       default:
         console.error(`✗ unknown command: ${command}`);
         console.error('  Run `meta-skills --help` for usage.');

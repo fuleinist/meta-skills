@@ -22,6 +22,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { excludeFromBudget } from './deprecation.mjs';
 
 // --------------------------------------------------------------------------
 // Constants
@@ -249,8 +250,9 @@ export function generateSuggestions(skills, options) {
     return { suggestions: [], projectedTotal: 0, unfixable: false };
   }
 
-  // Build working list of active, mutable skills (skip already-archived).
-  const working = skills
+  // Build working list of active, mutable skills (skip already-archived
+  // and deprecated — v0.1.7: deprecated skills are never promotion candidates).
+  const working = excludeFromBudget(skills)
     .filter((s) => s && s.priority !== 'archived')
     .map((s) => ({
       entry: s,

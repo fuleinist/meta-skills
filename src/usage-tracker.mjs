@@ -21,6 +21,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { resolveDependencies } from './semver-compat.mjs';
+import { warnIfDeprecated } from './deprecation.mjs';
 
 const SCHEMA_URL = 'https://meta-skills.dev/schema/v1.json';
 
@@ -53,6 +54,16 @@ function cmdRecord(skillId, options) {
 
   fs.appendFileSync(logFile, JSON.stringify(event) + '\n', 'utf-8');
   console.log(`✓ recorded: ${skillId} (${outcome}) → ${logFile}`);
+
+  // v0.1.7 — warn if skill is deprecated
+  try {
+    const gjPath = options.globalJson || defaultGlobalJson();
+    const index = JSON.parse(fs.readFileSync(gjPath, 'utf-8'));
+    const entry = [...(index.skills || []), ...(index.stale || [])].find(s => s && s.id === skillId);
+    if (entry) warnIfDeprecated(skillId, entry);
+  } catch {
+    // non-fatal: record still succeeds without index
+  }
 
   // v0.1.3 — auto-load required sub-skills on activation.
   if (options.noDeps) return;
