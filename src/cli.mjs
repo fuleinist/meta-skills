@@ -380,9 +380,10 @@ async function cmdMarketplace(args) {
     case 'install': await _marketplace.cmdInstall(rest); break;
     case 'list':    await _marketplace.cmdList(rest); break;
     case 'refresh': await _marketplace.cmdRefresh(rest); break;
+    case 'reputation': await _marketplace.cmdReputation(rest); break;
     default:
       console.error(`unknown marketplace subcommand: ${sub || '(none)'}`);
-      console.error('  usage: meta-skills marketplace <search|install|list|refresh>');
+      console.error('  usage: meta-skills marketplace <search|install|list|refresh|reputation>');
       process.exit(1);
   }
 }
@@ -1059,7 +1060,7 @@ function showHelp() {
   console.log('  search <query>             Search marketplace registries (awesome-agent-skills, agentskills.io)');
   console.log('  semantic <query>            Semantic search your skill index (v1.9)');
   console.log('  install <skill-id>         Install a marketplace skill (writes SKILL.md, registers in global.json)');
-  console.log('  marketplace <sub>          Raw marketplace passthrough (search|install|list|refresh)');
+  console.log('  marketplace <sub>          Raw marketplace passthrough (search|install|list|refresh|reputation)');
   console.log('  dashboard [--port 7777]    Local web dashboard (v1.4) - open http://127.0.0.1:7777');
   console.log('  quality [--threshold <n>] [--json]  Skill quality scoring (v1.6)');
   console.log('  budget [--max-tokens 500]         Token budget optimizer (v1.7) - dry-run by default');
