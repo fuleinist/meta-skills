@@ -33,7 +33,7 @@ const PKG = JSON.parse(fs.readFileSync(path.resolve(__dirname, '..', 'package.js
 
 // Î"Ã¶Ã‡Î"Ã¶Ã‡ Import all modules directly (no execSync) Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡
 
-let _scanner, _projectScanner, _tracker, _improver, _maintainer, _validator, _syncer, _marketplace, _failureAnalyzer, _dashboard, _agentConfig, _qualityScorer, _budgetOptimizer, _bundleManager, _recipeRunner, _semanticSearch, _rollback, _semver, _evolution, _deprecation;
+let _scanner, _projectScanner, _tracker, _improver, _maintainer, _validator, _syncer, _marketplace, _failureAnalyzer, _dashboard, _agentConfig, _qualityScorer, _budgetOptimizer, _bundleManager, _recipeRunner, _semanticSearch, _rollback, _semver, _evolution, _deprecation, _pilot;
 
 async function ensureModules() {
   if (!_scanner) {
@@ -83,6 +83,9 @@ async function ensureModules() {
   }
   if (!_evolution) {
     _evolution = await import(pathToFileURL(path.resolve(__dirname, 'evolution.mjs')).href);
+  }
+  if (!_pilot) {
+    _pilot = await import(pathToFileURL(path.resolve(__dirname, 'pilot.mjs')).href);
   }
 }
 
@@ -1030,6 +1033,11 @@ async function cmdDeprecate(args) {
   }
 }
 
+async function cmdPilotCmd(args) {
+  await ensureModules();
+  _pilot.cmdPilot(args);
+}
+
 function showHelp() {
   console.log(`meta-skills v${PKG.version} - Agent Skill Index`);
   console.log('');
@@ -1092,6 +1100,14 @@ function showHelp() {
   console.log('  deprecate <skill-id> [successor-id]   Mark skill as deprecated (v0.1.7)');
   console.log('  deprecate list                        List deprecated active skills');
   console.log('  undeprecate <skill-id>                Remove deprecated status');
+  console.log('  pilot <sub>                  Skill A/B testing (v0.1.9)');
+  console.log('    pilot start <skill-id> --variant-a <path> --variant-b <path> [--min-runs N]');
+  console.log('    pilot next <skill-id>              # which variant to use now');
+  console.log('    pilot record <skill-id> --outcome success|failure [--variant A|B]');
+  console.log('    pilot status <skill-id> [--json]');
+  console.log('    pilot conclude <skill-id> [--global-json <path>] [--dry-run]');
+  console.log('    pilot stop <skill-id>');
+  console.log('    pilot list');
   console.log('    evolve baseline              Run baseline quality measurement');
   console.log('    evolve propose [--dry-run]   Generate mutation proposals');
   console.log('    evolve review                List pending proposals');
@@ -1170,6 +1186,7 @@ async function main() {
       case 'semver':       await cmdSemver(rest); break;
       case 'evolve':       await cmdEvolve(rest); break;
       case 'deprecate':    await cmdDeprecate(rest); break;
+      case 'pilot':        await cmdPilotCmd(rest); break;
       default:
         console.error(`✗ unknown command: ${command}`);
         console.error('  Run `meta-skills --help` for usage.');

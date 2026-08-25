@@ -466,7 +466,7 @@ Design notes:
 
 - [x] **v0.1.8 - Offline reputation metrics for marketplace** - Ship weekly static index of marketplace metadata mapping skills to reputation scores (GitHub stars, forks, community success rates). Merge into cached results in `~/.meta-skills/marketplace/`. Filters untrusted community skills without runtime API calls. *Inspired by: npm download counts, GitHub stars, awesome-list curation.*
 
-- [ ] **v0.1.9 - Skill A/B testing in live workspaces** - `meta-skills pilot` maintains two skill instruction variants (e.g., `SKILL_variant_A.md`, `SKILL_variant_B.md`). Index alternates variants over 50-100 runs, compares empirical success/failure rates. Pilot config maps `skill-id` to multiple file paths, dynamically updates priority ratings. *Inspired by: feature flags, A/B testing frameworks, data-driven optimization.*
+- [x] **v0.1.9 - Skill A/B testing in live workspaces** - `meta-skills pilot` maintains two skill instruction variants (e.g., `SKILL_variant_A.md`, `SKILL_variant_B.md`). Index alternates variants over 50-100 runs, compares empirical success/failure rates. Pilot config maps `skill-id` to multiple file paths, dynamically updates priority ratings. *Inspired by: feature flags, A/B testing frameworks, data-driven optimization.*
 
 - [ ] **v0.2.0 - Self-healing skill instructions** - When skill fails and triggers v1.3 auto-improvement patch, automatically package failed conversation prompt as micro-test-case. Mutated skill runs against specific test case + wider baseline suite to guarantee zero-regression. Dynamic test cases saved to `.meta-skills/tests/` for evolutionary engine. *Inspired by: EvoSkill Pareto-filtered validation, regression testing, TDD.*
 
