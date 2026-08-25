@@ -460,11 +460,11 @@ Design notes:
 
 - [x] **v0.1.5 - Capabilities & permissions manifest** - Declarative `permissions` block in skill frontmatter cataloging authorized access (`fs-read`, `fs-write`, `network`, `shell-exec`, `env-read`, `process-exec`). Validated via `validatePermissions()`, capability checks via `canPerform()`, agent config injection via `summarizePermissions()`. *Inspired by: POSIX capabilities, Docker security model, agent safety best practices.*
 
-- [ ] **v0.1.6 - Live skill hot-reloading** - Background file watcher (`fs.watch`) detects changes to registered SKILL.md files during active sessions, automatically hot-reloading in-memory agent index. Integrates into dashboard server or maintenance task. Zero manual re-indexing required. *Inspired by: webpack HMR, nodemon, developer experience patterns.*
+- [x] **v0.1.6 - Live skill hot-reloading** - Background file watcher (`fs.watch`) detects changes to registered SKILL.md files during active sessions, automatically hot-reloading in-memory agent index. Integrates into dashboard server or maintenance task. Zero manual re-indexing required. *Inspired by: webpack HMR, nodemon, developer experience patterns.*
 
 - [x] **v0.1.7 - Deprecation & successor routing** - Introduce `deprecated: true, successor: "<skill-id>"` status mapping. When agent loads deprecated path, runtime logs warning and redirects to successor skill. Graceful lifecycle management without hard archive. *Inspired by: npm deprecation warnings, API versioning patterns.*
 
-- [ ] **v0.1.8 - Offline reputation metrics for marketplace** - Ship weekly static index of marketplace metadata mapping skills to reputation scores (GitHub stars, forks, community success rates). Merge into cached results in `~/.meta-skills/marketplace/`. Filters untrusted community skills without runtime API calls. *Inspired by: npm download counts, GitHub stars, awesome-list curation.*
+- [x] **v0.1.8 - Offline reputation metrics for marketplace** - Ship weekly static index of marketplace metadata mapping skills to reputation scores (GitHub stars, forks, community success rates). Merge into cached results in `~/.meta-skills/marketplace/`. Filters untrusted community skills without runtime API calls. *Inspired by: npm download counts, GitHub stars, awesome-list curation.*
 
 - [ ] **v0.1.9 - Skill A/B testing in live workspaces** - `meta-skills pilot` maintains two skill instruction variants (e.g., `SKILL_variant_A.md`, `SKILL_variant_B.md`). Index alternates variants over 50-100 runs, compares empirical success/failure rates. Pilot config maps `skill-id` to multiple file paths, dynamically updates priority ratings. *Inspired by: feature flags, A/B testing frameworks, data-driven optimization.*
 

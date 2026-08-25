@@ -1,0 +1,29 @@
+{
+  "schema": "meta-skills-reputation-baseline-v1",
+  "generatedAt": "2026-08-25T14:00:00Z",
+  "notes": "Weekly static snapshot of repo-level signals for well-known agent skill repos. Regenerated offline; consumed by src/reputation.mjs (v0.1.8). stars/forks drift slowly — weekly refresh is sufficient.",
+  "orgs": [
+    "anthropics",
+    "openai",
+    "google",
+    "github",
+    "vercel",
+    "vercel-labs",
+    "stripe",
+    "microsoft",
+    "huggingface",
+    "VoltAgent",
+    "obra",
+    "steipete"
+  ],
+  "repos": {
+    "anthropics/skills": { "stars": 12400, "forks": 1350 },
+    "voltagent/awesome-agent-skills": { "stars": 1497, "forks": 210 },
+    "vercel-labs/next-skills": { "stars": 860, "forks": 95 },
+    "stripe/stripe-best-practices": { "stars": 340, "forks": 42 },
+    "obra/superpowers": { "stars": 2900, "forks": 310 },
+    "steipete/agent-scripts": { "stars": 480, "forks": 61 },
+    "huggingface/smolagents-skills": { "stars": 720, "forks": 88 },
+    "github/github-mcp-skills": { "stars": 530, "forks": 74 }
+  }
+}

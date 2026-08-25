@@ -27,6 +27,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import {
+  loadBaseline,
+  buildReputationIndex,
+  loadReputationIndex,
+  annotateWithReputation,
+  filterByReputation,
+  cmdReputationBuild,
+  cmdReputationCheck,
+} from './reputation.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -540,7 +549,19 @@ async function cmdSearch(args) {
   }
 
   const dedup = dedupeEntries(entries);
-  const results = searchEntries(dedup, options.query, { limit: options.limit });
+
+  // v0.1.8 — offline reputation: load cached index or derive one in-memory
+  const cacheDir = options.cacheDir || defaultCacheDir();
+  const index = loadReputationIndex(cacheDir)
+    || buildReputationIndex(dedup, loadBaseline());
+  const minScore = Number(options.minReputation) || 0;
+  const annotated = filterByReputation(
+    annotateWithReputation(dedup, index),
+    index,
+    { minScore, includeUnrated: !options.trustedOnly },
+  );
+
+  const results = searchEntries(annotated, options.query, { limit: options.limit });
 
   if (options.json) {
     console.log(JSON.stringify({
@@ -561,7 +582,8 @@ async function cmdSearch(args) {
   console.log(`  ${results.length} marketplace skill(s) match "${options.query}":\n`);
   for (const r of results) {
     const desc = r.description.length > 80 ? r.description.slice(0, 77) + '...' : r.description;
-    console.log(`  - ${r.id}`);
+    const rep = r.reputation ? `  [${r.reputation.score}/100 ${r.reputation.tier}]` : '';
+    console.log(`  - ${r.id}${rep}`);
     console.log(`    ${desc}`);
     console.log(`    [${r.source}] ${r.url}`);
   }
@@ -582,7 +604,11 @@ async function cmdList(args) {
     entries = await loadAllSources({ cacheDir: options.cacheDir });
   }
   const dedup = dedupeEntries(entries);
-  const results = dedup.slice(0, options.limit);
+
+  // v0.1.8 — annotate with offline reputation scores when available
+  const cacheDir = options.cacheDir || defaultCacheDir();
+  const index = loadReputationIndex(cacheDir);
+  const results = (index ? annotateWithReputation(dedup, index) : dedup).slice(0, options.limit);
 
   if (options.json) {
     console.log(JSON.stringify({ count: results.length, skills: results }, null, 2));
@@ -591,7 +617,8 @@ async function cmdList(args) {
 
   console.log(`  ${results.length} marketplace skill(s):\n`);
   for (const r of results) {
-    console.log(`  - ${r.id}  [${r.source}]  ${r.section}`);
+    const rep = r.reputation ? `  [${r.reputation.score}/100 ${r.reputation.tier}]` : '';
+    console.log(`  - ${r.id}${rep}  [${r.source}]  ${r.section}`);
   }
 }
 
@@ -607,6 +634,37 @@ async function cmdRefresh(args) {
       console.error(`  ! ${name}: ${e.message}`);
     }
   }
+}
+
+// ── Reputation subcommand (v0.1.8) ────────────────────────────────────
+
+async function cmdReputation(args) {
+  const sub = args[0];
+  const rest = args.slice(1);
+  const cacheDir = extractCacheDir(rest) || defaultCacheDir();
+
+  switch (sub) {
+    case 'build': {
+      const entries = dedupeEntries(await loadAllSources({ cacheDir }));
+      cmdReputationBuild(rest, {
+        cacheDir,
+        loadAllEntries: () => entries,
+      });
+      break;
+    }
+    case 'check':
+      cmdReputationCheck(rest, { cacheDir });
+      break;
+    default:
+      console.error(`  ! unknown reputation subcommand: ${sub || '(none)'}`);
+      console.error('    usage: meta-skills marketplace reputation <build|check> [args]');
+      process.exit(1);
+  }
+}
+
+function extractCacheDir(argv) {
+  const i = argv.indexOf('--cache-dir');
+  return (i >= 0 && i + 1 < argv.length) ? argv[i + 1] : null;
 }
 
 // ── Tiny CLI arg parser (--flag value | --flag | positional) ──────────
@@ -679,9 +737,10 @@ async function main() {
       case 'install': await cmdInstall(rest); break;
       case 'list':    await cmdList(rest); break;
       case 'refresh': await cmdRefresh(rest); break;
+      case 'reputation': await cmdReputation(rest); break;
       default:
         console.error(`  ! unknown marketplace subcommand: ${subcommand || '(none)'}`);
-        console.error('    usage: meta-skills marketplace <search|install|list|refresh> [args]');
+        console.error('    usage: meta-skills marketplace <search|install|list|refresh|reputation> [args]');
         process.exit(1);
     }
   } catch (e) {
@@ -711,6 +770,7 @@ export {
   cmdInstall,
   cmdList,
   cmdRefresh,
+  cmdReputation,
   defaultCacheDir,
   defaultInstallDir,
 };
