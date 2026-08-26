@@ -33,7 +33,7 @@ const PKG = JSON.parse(fs.readFileSync(path.resolve(__dirname, '..', 'package.js
 
 // Î"Ã¶Ã‡Î"Ã¶Ã‡ Import all modules directly (no execSync) Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡
 
-let _scanner, _projectScanner, _tracker, _improver, _maintainer, _validator, _syncer, _marketplace, _failureAnalyzer, _dashboard, _agentConfig, _qualityScorer, _budgetOptimizer, _bundleManager, _recipeRunner, _semanticSearch, _rollback, _semver, _evolution, _deprecation, _pilot;
+let _scanner, _projectScanner, _tracker, _improver, _maintainer, _validator, _syncer, _marketplace, _failureAnalyzer, _dashboard, _agentConfig, _qualityScorer, _budgetOptimizer, _bundleManager, _recipeRunner, _semanticSearch, _rollback, _semver, _evolution, _deprecation, _pilot, _selfheal;
 
 async function ensureModules() {
   if (!_scanner) {
@@ -86,6 +86,9 @@ async function ensureModules() {
   }
   if (!_pilot) {
     _pilot = await import(pathToFileURL(path.resolve(__dirname, 'pilot.mjs')).href);
+  }
+  if (!_selfheal) {
+    _selfheal = await import(pathToFileURL(path.resolve(__dirname, 'selfheal.mjs')).href);
   }
 }
 
@@ -1038,6 +1041,11 @@ async function cmdPilotCmd(args) {
   _pilot.cmdPilot(args);
 }
 
+async function cmdSelfhealCmd(args) {
+  await ensureModules();
+  await _selfheal.cmdSelfheal(args);
+}
+
 function showHelp() {
   console.log(`meta-skills v${PKG.version} - Agent Skill Index`);
   console.log('');
@@ -1108,6 +1116,11 @@ function showHelp() {
   console.log('    pilot conclude <skill-id> [--global-json <path>] [--dry-run]');
   console.log('    pilot stop <skill-id>');
   console.log('    pilot list');
+  console.log('  selfheal <sub>                 Self-healing skill instructions (v0.2.0)');
+  console.log('    selfheal capture <skill-id> --prompt <text> | --prompt-file <path> [--hint <t>]');
+  console.log('    selfheal test <skill-id> [--skill-path <p>] [--threshold N] [--json]');
+  console.log('    selfheal validate <skill-id> --mutated <path> [--skill-path <p>] [--threshold N] [--json]');
+  console.log('    selfheal list [skill-id]');
   console.log('    evolve baseline              Run baseline quality measurement');
   console.log('    evolve propose [--dry-run]   Generate mutation proposals');
   console.log('    evolve review                List pending proposals');
@@ -1187,6 +1200,7 @@ async function main() {
       case 'evolve':       await cmdEvolve(rest); break;
       case 'deprecate':    await cmdDeprecate(rest); break;
       case 'pilot':        await cmdPilotCmd(rest); break;
+      case 'selfheal':     await cmdSelfhealCmd(rest); break;
       default:
         console.error(`✗ unknown command: ${command}`);
         console.error('  Run `meta-skills --help` for usage.');

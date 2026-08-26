@@ -468,7 +468,62 @@ Design notes:
 
 - [x] **v0.1.9 - Skill A/B testing in live workspaces** - `meta-skills pilot` maintains two skill instruction variants (e.g., `SKILL_variant_A.md`, `SKILL_variant_B.md`). Index alternates variants over 50-100 runs, compares empirical success/failure rates. Pilot config maps `skill-id` to multiple file paths, dynamically updates priority ratings. *Inspired by: feature flags, A/B testing frameworks, data-driven optimization.*
 
-- [ ] **v0.2.0 - Self-healing skill instructions** - When skill fails and triggers v1.3 auto-improvement patch, automatically package failed conversation prompt as micro-test-case. Mutated skill runs against specific test case + wider baseline suite to guarantee zero-regression. Dynamic test cases saved to `.meta-skills/tests/` for evolutionary engine. *Inspired by: EvoSkill Pareto-filtered validation, regression testing, TDD.*
+- [x] **v0.2.0 - Self-healing skill instructions** - When skill fails and triggers v1.3 auto-improvement patch, automatically package failed conversation prompt as micro-test-case. Mutated skill runs against specific test case + wider baseline suite to guarantee zero-regression. Dynamic test cases saved to `.meta-skills/tests/` for evolutionary engine. *Inspired by: EvoSkill Pareto-filtered validation, regression testing, TDD.*
+
+## Self-Healing Skill Instructions (v0.2.0)
+
+When a skill fails, the failed conversation prompt is packaged as a
+micro-test-case. Any mutation to that skill's SKILL.md must pass the specific
+case plus the wider baseline suite before approval — guaranteeing
+zero-regression.
+
+### Test-case capture
+
+```bash
+# Package a failed conversation prompt as a micro-test-case
+meta-skills selfheal capture git-commits --prompt-file failed-session.md --hint "rollback step missing"
+
+# v1.3 integration: `meta-skills propose` auto-captures a synthesized case
+# from the latest failure event when a skill has no cases yet.
+```
+
+Test cases live in `~/.meta-skills/tests/<skill-id>/<id>.json` with extracted
+keywords for deterministic matching.
+
+### Validation (zero-regression gate)
+
+```bash
+# Run the whole suite for a skill against its current SKILL.md
+meta-skills selfheal test git-commits [--threshold 50] [--json]
+
+# Pareto gate for a mutation: never score below the original on any case
+meta-skills selfheal validate git-commits --mutated SKILL_patched.md [--json]
+
+# List captured cases
+meta-skills selfheal list [skill-id]
+```
+
+### Scoring
+
+Each case scores a skill 0–100, fully deterministic:
+
+| Component | Points | Check |
+|-----------|--------|-------|
+| Keyword coverage | 60 | fraction of case keywords present in skill text |
+| Structural guidance | 20 | numbered steps / checklists present |
+| Caution guidance | 20 | avoid / do not / warning / anti-pattern present |
+
+`validateMutation` accepts only when the mutation never scores below the
+original on any case and every originally-passing case still meets the
+threshold (default 50).
+
+### Design
+
+- **Zero external API calls** — offline keyword matching, deterministic scores
+- **Zero new dependencies** — Node.js stdlib only
+- **Dedupe guard** — v1.3 auto-capture only fires when the skill has no cases
+- **Best-effort capture** — never blocks proposal generation
+- **39 tests** covering keyword extraction, capture, scoring, suite runs, the Pareto gate, and the v1.3 hook
 
 ## Related Work
 

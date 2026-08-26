@@ -29,6 +29,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { execSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { captureFromFailureEvent, listTestCases } from './selfheal.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -576,7 +577,25 @@ function analyzeFailures(options = {}) {
     } else {
       const filePath = writeProposal(skillId, result.patch, result.type, result.summary, proposalsDir);
       console.log(`    ✓ Proposal written: ${filePath}`);
-      proposals.push({ skillId, type: result.type, summary: result.summary, filePath });
+
+      // v0.2.0 self-healing: auto-package a micro-test-case from the latest
+      // failure event (dedupe guard — only when the skill has no cases yet).
+      let testCaseId = null;
+      try {
+        const existing = listTestCases(skillId, { testsDir: options.testsDir });
+        if (existing.length === 0) {
+          const latest = failures[failures.length - 1];
+          const tc = captureFromFailureEvent(skillId, latest, { testsDir: options.testsDir });
+          testCaseId = tc.id;
+          console.log(`    ✓ Micro-test-case captured: ${tc.id} (${tc.file})`);
+          console.log('      After applying the patch, run:');
+          console.log(`      meta-skills selfheal validate ${skillId} --mutated <patched-SKILL.md>`);
+        }
+      } catch {
+        // test-case capture is best-effort; never block proposal generation
+      }
+
+      proposals.push({ skillId, type: result.type, summary: result.summary, filePath, testCaseId });
     }
   }
 
