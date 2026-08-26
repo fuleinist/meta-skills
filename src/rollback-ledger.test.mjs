@@ -61,12 +61,8 @@ try {
   const snap2 = takeSnapshot({ globalJsonPath: gjPath, historyPath, comment: 'after add' });
   check('second snapshot has different hash', snap.hash !== snap2.hash);
 
-  // Read the actual history path from the snapshot result
+  // Use the history path reported by the snapshot
   const actualHistoryPath = snap.historyPath || historyPath;
-  // Cleanup any leftover history from previous runs
-  if (fs.existsSync(actualHistoryPath)) {
-    fs.unlinkSync(actualHistoryPath);
-  }
 
   console.log('\nlistSnapshots:');
   const list = listSnapshots({ historyPath: actualHistoryPath, asJson: false });

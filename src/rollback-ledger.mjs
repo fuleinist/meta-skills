@@ -147,7 +147,7 @@ function takeSnapshot(options = {}) {
  * @returns {Array<{ts, hash, comment, skills_active, skills_stale}>}
  */
 function listSnapshots(options = {}) {
-  const historyPath = defaultHistoryPath();
+  const historyPath = options.historyPath || defaultHistoryPath();
   let entries = [];
 
   try {
@@ -250,9 +250,9 @@ function rollback(stepsBack, options = {}) {
  * @param {string} [options.globalJsonPath]
  */
 function pruneSnapshots(options = {}) {
-  const historyPath = defaultHistoryPath();
+  const historyPath = options.historyPath || defaultHistoryPath();
   const keep = options.keep || 10;
-  const olderThanDays = options.olderThanDays || 30;
+  const olderThanDays = options.olderThanDays ?? 30;
   const cutoff = Date.now() - olderThanDays * 24 * 60 * 60 * 1000;
 
   let entries = [];

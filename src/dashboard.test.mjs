@@ -192,22 +192,27 @@ await test('readIndex throws on invalid JSON', () => {
 
 await test('readLogs parses jsonl and filters by date', () => {
   const dir = makeTempDir();
+  const day = 24 * 60 * 60 * 1000;
+  const oldDate = new Date(Date.now() - 60 * day).toISOString().slice(0, 10);
+  const recentDate = new Date(Date.now() - 1 * day).toISOString().slice(0, 10);
+  const cutoffStr = new Date(Date.now() - 7 * day).toISOString();
   // Old file
-  fs.writeFileSync(path.join(dir, '2026-05-01.jsonl'), sampleEvents.filter(e => e.timestamp.startsWith('2026-05')).map(e => JSON.stringify(e)).join('\n'));
+  fs.writeFileSync(path.join(dir, `${oldDate}.jsonl`), JSON.stringify({ skill: 'old', timestamp: `${oldDate}T10:00:00Z` }));
   // Recent file
-  fs.writeFileSync(path.join(dir, '2026-07-09.jsonl'), sampleEvents.filter(e => e.timestamp.startsWith('2026-07-09')).map(e => JSON.stringify(e)).join('\n'));
+  fs.writeFileSync(path.join(dir, `${recentDate}.jsonl`), JSON.stringify({ skill: 'recent', timestamp: `${recentDate}T10:00:00Z` }));
   const events = readLogs(dir, 7);
   assert.ok(events.length > 0, 'should find recent events');
-  assert.ok(events.every(e => e.timestamp >= '2026-07-02'), 'all events within last 7 days');
+  assert.ok(events.every(e => e.timestamp >= cutoffStr), 'all events within last 7 days');
   cleanup(dir);
 });
 
 await test('readLogs skips malformed lines', () => {
   const dir = makeTempDir();
-  fs.writeFileSync(path.join(dir, '2026-07-09.jsonl'),
-    JSON.stringify({ skill: 'a', timestamp: '2026-07-09T10:00:00Z' }) + '\n' +
+  const recentDate = new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  fs.writeFileSync(path.join(dir, `${recentDate}.jsonl`),
+    JSON.stringify({ skill: 'a', timestamp: `${recentDate}T10:00:00Z` }) + '\n' +
     'this is not json\n' +
-    JSON.stringify({ skill: 'b', timestamp: '2026-07-09T10:01:00Z' }) + '\n');
+    JSON.stringify({ skill: 'b', timestamp: `${recentDate}T10:01:00Z` }) + '\n');
   const events = readLogs(dir, 7);
   assert.equal(events.length, 2);
   cleanup(dir);

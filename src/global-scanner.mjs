@@ -191,8 +191,8 @@ function scanDir(skillsDir) {
       usage_count: 0,
       last_used: null,
       // v0.1.1 — semantic versioning
-      version: frontmatter.version || null,
-      engines: frontmatter.engines || null,
+      version: frontmatter.version || skillVersion,
+      engines: frontmatter.engines || skillEngines,
       // v0.1.3 — dependency graph
       requires: frontmatter.requires || null,
       // v0.1.5 — permissions manifest
