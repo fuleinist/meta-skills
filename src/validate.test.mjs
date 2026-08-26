@@ -179,16 +179,16 @@ check('parseSemverRange * returns any', validator.parseSemverRange('*').op === '
 
 // checkEngines
 const idxWithOldNode = { skills: [{ id: 'old-skill', engines: { node: '>=99.0.0' } }] };
-const warnings = validator.checkEngines(idxWithOldNode);
+const warnings = validator.checkSkillEngines(idxWithOldNode);
 check('checkEngines warns for incompatible node', warnings.length > 0);
 check('checkEngines mentions skill id', warnings.some(w => w.includes('old-skill')));
 
 const idxWithGoodNode = { skills: [{ id: 'good-skill', engines: { node: '>=18.0.0' } }] };
-const goodWarnings = validator.checkEngines(idxWithGoodNode);
+const goodWarnings = validator.checkSkillEngines(idxWithGoodNode);
 check('checkEngines no warning for compatible node', goodWarnings.length === 0);
 
 const idxNoEngines = { skills: [{ id: 'no-engines', priority: 'high' }] };
-const noWarnings = validator.checkEngines(idxNoEngines);
+const noWarnings = validator.checkSkillEngines(idxNoEngines);
 check('checkEngines no warnings when no engines', noWarnings.length === 0);
 
 // ── Cleanup ───────────────────────────────────────────────────────────
