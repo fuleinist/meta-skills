@@ -472,6 +472,8 @@ Design notes:
 
 - [x] **v0.2.1 - Skill telemetry MCP server** - Read-only stdio MCP server (`meta-skills mcp`) exposing skill telemetry to any MCP client: index overview, per-skill lookup, top-used rankings, quality reports, and aggregate summaries. Zero new dependencies (hand-rolled JSON-RPC 2.0), fully offline and deterministic. *Inspired by: MCP ecosystem growth, read-only observability patterns.*
 
+- [x] **v0.2.2 - Cross-workspace skill diff & migration** - Compare two skill directories (`meta-skills skill-diff <dirA> <dirB>`) and plan/apply an additive migration (`--migrate`, `--apply`). Skill identity = folder with SKILL.md; equality = sha256 of SKILL.md. Reports identical/onlyA/onlyB/changed; never deletes. Zero new dependencies, fully offline and deterministic. *Inspired by: multi-workspace skill drift, rsync-style sync mental model.*
+
 ## Skill Telemetry MCP Server (v0.2.1)
 
 Any MCP client can query meta-skills telemetry over stdio - no shell-outs,

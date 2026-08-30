@@ -1130,6 +1130,7 @@ function showHelp() {
   console.log('    selfheal validate <skill-id> --mutated <path> [--skill-path <p>] [--threshold N] [--json]');
   console.log('    selfheal list [skill-id]');
   console.log('  mcp [--index <path>]             Skill telemetry MCP server on stdio (v0.2.1)');
+  console.log('  skill-diff <dirA> <dirB> [--json] [--migrate] [--apply]  Cross-workspace skill diff & migration (v0.2.2)');
   console.log('    evolve baseline              Run baseline quality measurement');
   console.log('    evolve propose [--dry-run]   Generate mutation proposals');
   console.log('    evolve review                List pending proposals');
@@ -1161,6 +1162,52 @@ function showHelp() {
 // Î"Ã¶Ã‡Î"Ã¶Ã‡ Main Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡
 
 // Î"Ã¶Ã‡Î"Ã¶Ã‡ Main Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡
+
+async function cmdSkillDiff(args) {
+  const sd = await import(pathToFileURL(path.resolve(__dirname, 'skill-diff.mjs')).href);
+  const positional = args.filter((a) => !a.startsWith('--'));
+  if (positional.length < 2) {
+    console.error('Usage: meta-skills skill-diff <dirA> <dirB> [--json] [--migrate] [--apply]');
+    process.exit(1);
+  }
+  const [dirA, dirB] = positional.map((p) => path.resolve(p));
+  const asJson = args.includes('--json');
+  const diff = sd.diffSkills(dirA, dirB);
+
+  if (args.includes('--apply')) {
+    const plan = sd.migrationPlan(diff, { from: dirA, to: dirB });
+    const results = sd.applyMigration(plan, { dryRun: false });
+    if (asJson) {
+      console.log(JSON.stringify(results, null, 2));
+    } else {
+      for (const r of results) console.log(`${r.applied ? 'applied' : 'skipped'} ${r.type}: ${r.skill}`);
+      console.log(`Applied ${results.filter((r) => r.applied).length} action(s).`);
+    }
+    return;
+  }
+
+  if (args.includes('--migrate')) {
+    const plan = sd.migrationPlan(diff, { from: dirA, to: dirB });
+    if (asJson) {
+      console.log(JSON.stringify(plan, null, 2));
+    } else if (plan.length === 0) {
+      console.log('No migration needed.');
+    } else {
+      for (const p of plan) console.log(`${p.type}: ${p.skill}  ${p.from} -> ${p.to}`);
+    }
+    return;
+  }
+
+  if (asJson) {
+    console.log(JSON.stringify(diff, null, 2));
+    return;
+  }
+  const fmt = (arr) => (arr.length ? `  (${arr.join(', ')})` : '');
+  console.log(`identical: ${diff.identical.length}${fmt(diff.identical)}`);
+  console.log(`only in A: ${diff.onlyA.length}${fmt(diff.onlyA)}`);
+  console.log(`only in B: ${diff.onlyB.length}${fmt(diff.onlyB)}`);
+  console.log(`changed:   ${diff.changed.length}${fmt(diff.changed)}`);
+}
 
 async function main() {
   const args = process.argv.slice(2);
@@ -1211,6 +1258,7 @@ async function main() {
       case 'pilot':        await cmdPilotCmd(rest); break;
       case 'selfheal':     await cmdSelfhealCmd(rest); break;
       case 'mcp':          await cmdMcpCmd(rest); break;
+      case 'skill-diff':   await cmdSkillDiff(rest); break;
       default:
         console.error(`✗ unknown command: ${command}`);
         console.error('  Run `meta-skills --help` for usage.');
