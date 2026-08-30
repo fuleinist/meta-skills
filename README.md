@@ -470,6 +470,32 @@ Design notes:
 
 - [x] **v0.2.0 - Self-healing skill instructions** - When skill fails and triggers v1.3 auto-improvement patch, automatically package failed conversation prompt as micro-test-case. Mutated skill runs against specific test case + wider baseline suite to guarantee zero-regression. Dynamic test cases saved to `.meta-skills/tests/` for evolutionary engine. *Inspired by: EvoSkill Pareto-filtered validation, regression testing, TDD.*
 
+- [x] **v0.2.1 - Skill telemetry MCP server** - Read-only stdio MCP server (`meta-skills mcp`) exposing skill telemetry to any MCP client: index overview, per-skill lookup, top-used rankings, quality reports, and aggregate summaries. Zero new dependencies (hand-rolled JSON-RPC 2.0), fully offline and deterministic. *Inspired by: MCP ecosystem growth, read-only observability patterns.*
+
+## Skill Telemetry MCP Server (v0.2.1)
+
+Any MCP client can query meta-skills telemetry over stdio - no shell-outs,
+no stdout parsing. Read-only by design: five tools expose the global index,
+usage counts, quality scores, and aggregate summaries.
+
+```bash
+# Run the server (clients spawn this as a subprocess)
+meta-skills mcp [--index <path>]
+```
+
+Example client config (Claude Desktop / any MCP host):
+
+```json
+{
+  "mcpServers": {
+    "meta-skills": { "command": "meta-skills", "args": ["mcp"] }
+  }
+}
+```
+
+Tools: `skills_overview`, `skill_lookup`, `skills_top_used`,
+`skill_quality_report`, `telemetry_summary`.
+
 ## Self-Healing Skill Instructions (v0.2.0)
 
 When a skill fails, the failed conversation prompt is packaged as a
