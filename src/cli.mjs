@@ -33,7 +33,7 @@ const PKG = JSON.parse(fs.readFileSync(path.resolve(__dirname, '..', 'package.js
 
 // Î"Ã¶Ã‡Î"Ã¶Ã‡ Import all modules directly (no execSync) Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡
 
-let _scanner, _projectScanner, _tracker, _improver, _maintainer, _validator, _syncer, _marketplace, _failureAnalyzer, _dashboard, _agentConfig, _qualityScorer, _budgetOptimizer, _bundleManager, _recipeRunner, _semanticSearch, _rollback, _semver, _evolution, _deprecation, _pilot, _selfheal;
+let _scanner, _projectScanner, _tracker, _improver, _maintainer, _validator, _syncer, _marketplace, _failureAnalyzer, _dashboard, _agentConfig, _qualityScorer, _budgetOptimizer, _bundleManager, _recipeRunner, _semanticSearch, _rollback, _semver, _evolution, _deprecation, _pilot, _selfheal, _mcpTelemetry;
 
 async function ensureModules() {
   if (!_scanner) {
@@ -89,6 +89,9 @@ async function ensureModules() {
   }
   if (!_selfheal) {
     _selfheal = await import(pathToFileURL(path.resolve(__dirname, 'selfheal.mjs')).href);
+  }
+  if (!_mcpTelemetry) {
+    _mcpTelemetry = await import(pathToFileURL(path.resolve(__dirname, 'mcp-telemetry.mjs')).href);
   }
 }
 
@@ -1046,6 +1049,11 @@ async function cmdSelfhealCmd(args) {
   await _selfheal.cmdSelfheal(args);
 }
 
+async function cmdMcpCmd(args) {
+  await ensureModules();
+  await _mcpTelemetry.cmdMcp(args);
+}
+
 function showHelp() {
   console.log(`meta-skills v${PKG.version} - Agent Skill Index`);
   console.log('');
@@ -1121,6 +1129,7 @@ function showHelp() {
   console.log('    selfheal test <skill-id> [--skill-path <p>] [--threshold N] [--json]');
   console.log('    selfheal validate <skill-id> --mutated <path> [--skill-path <p>] [--threshold N] [--json]');
   console.log('    selfheal list [skill-id]');
+  console.log('  mcp [--index <path>]             Skill telemetry MCP server on stdio (v0.2.1)');
   console.log('    evolve baseline              Run baseline quality measurement');
   console.log('    evolve propose [--dry-run]   Generate mutation proposals');
   console.log('    evolve review                List pending proposals');
@@ -1201,6 +1210,7 @@ async function main() {
       case 'deprecate':    await cmdDeprecate(rest); break;
       case 'pilot':        await cmdPilotCmd(rest); break;
       case 'selfheal':     await cmdSelfhealCmd(rest); break;
+      case 'mcp':          await cmdMcpCmd(rest); break;
       default:
         console.error(`✗ unknown command: ${command}`);
         console.error('  Run `meta-skills --help` for usage.');
