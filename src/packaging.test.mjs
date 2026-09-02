@@ -16,6 +16,7 @@ import assert from 'node:assert';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { loadBaseline } from './reputation.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, '..');
@@ -80,6 +81,37 @@ t('prepublishOnly guard runs the test suite', () => {
 t('test script includes the packaging test itself', () => {
   assert.ok(pkg.scripts && /packaging\.test\.mjs/.test(pkg.scripts.test),
     'npm test must run packaging.test.mjs');
+});
+
+t('files[] covers every root-level runtime read path', () => {
+  const srcDir = path.join(root, 'src');
+  const srcFiles = fs.readdirSync(srcDir).filter((f) => f.endsWith('.mjs') && !f.endsWith('.test.mjs'));
+  const reads = new Set();
+  const re = /__dirname,\s*'\.\.'(?:,\s*'([^']+)')?/g;
+  for (const f of srcFiles) {
+    const text = fs.readFileSync(path.join(srcDir, f), 'utf8');
+    for (const m of text.matchAll(re)) {
+      // Directory reads only; root files like package.json are always shipped by npm.
+      if (m[1] && !m[1].includes('.')) reads.add(m[1]);
+    }
+  }
+  // package.json reads need no coverage - npm always ships it (dot-filter above).
+  const covered = new Set((pkg.files || []).map((e) => e.replace(/\/+$/, '')));
+  for (const dir of reads) {
+    assert.ok(covered.has(dir), `runtime reads ${dir}/ but it is not in package.json files[]`);
+  }
+});
+
+t('reputation baseline is bundled and loadBaseline() resolves to it', () => {
+  const file = path.join(root, 'data', 'reputation-baseline.json');
+  assert.ok(fs.existsSync(file), 'data/reputation-baseline.json must ship with the package');
+  const direct = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const viaModule = loadBaseline();
+  assert.strictEqual(
+    Object.keys(viaModule.repos).length,
+    Object.keys(direct.repos || {}).length,
+    'loadBaseline() default path must resolve to the bundled baseline'
+  );
 });
 
 console.log(`\npackaging: ${passed} passed, ${failed} failed`);

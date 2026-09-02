@@ -132,6 +132,8 @@ npm install
 npm link   # exposes `meta-skills` globally
 ```
 
+The npm package bundles everything the CLI reads at runtime (`src/`, `schema/`, `data/`, `examples/`); `src/packaging.test.mjs` guards against drift between the tarball and runtime read paths.
+
 ### Setup (One-Time)
 
 ```bash
@@ -478,6 +480,10 @@ Design notes:
 - [x] **v0.2.1 - Skill telemetry MCP server** - Read-only stdio MCP server (`meta-skills mcp`) exposing skill telemetry to any MCP client: index overview, per-skill lookup, top-used rankings, quality reports, and aggregate summaries. Zero new dependencies (hand-rolled JSON-RPC 2.0), fully offline and deterministic. *Inspired by: MCP ecosystem growth, read-only observability patterns.*
 
 - [x] **v0.2.2 - Cross-workspace skill diff & migration** - Compare two skill directories (`meta-skills skill-diff <dirA> <dirB>`) and plan/apply an additive migration (`--migrate`, `--apply`). Skill identity = folder with SKILL.md; equality = sha256 of SKILL.md. Reports identical/onlyA/onlyB/changed; never deletes. Zero new dependencies, fully offline and deterministic. *Inspired by: multi-workspace skill drift, rsync-style sync mental model.*
+
+- [x] **v0.2.3 - npm publish packaging** - Release-line version alignment (0.x), `prepublishOnly` gate that refuses publish on red tests, npm-first install docs, and `src/packaging.test.mjs` guards covering bin/shebang, files[] existence, engines, and the publish gate. Zero new dependencies. *Inspired by: npm publish safety, release-readiness gates.*
+
+- [x] **v0.2.4 - Bundled baseline publish fix** - Include `data/` (v0.1.8 reputation baseline) in the npm `files` list so installed packages keep working, and extend the packaging guard to require every root-level runtime read path to be covered by `files[]`. Zero new dependencies. *Inspired by: missing-file bug class found during publish-readiness review.*
 
 ## Skill Telemetry MCP Server (v0.2.1)
 
