@@ -1,6 +1,6 @@
 {
   "name": "meta-skills",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "A lightweight, self-improving JSON index that lets agents discover all available skills in ~150 tokens",
   "type": "module",
   "main": "src/cli.mjs",
@@ -45,6 +45,7 @@
   },
   "files": [
     "src/",
+    "data/",
     "schema/",
     "examples/",
     "README.md",
