@@ -119,12 +119,17 @@ The meta-skills file:
 ### Installation
 
 ```bash
-# Clone the repo
+# From npm (recommended)
+npm install -g meta-skills
+
+# Or run once without installing
+npx meta-skills init --global
+
+# Or from source
+git clone https://github.com/fuleinist/meta-skills.git
 cd meta-skills
 npm install
-
-# Or link globally
-npm link
+npm link   # exposes `meta-skills` globally
 ```
 
 ### Setup (One-Time)

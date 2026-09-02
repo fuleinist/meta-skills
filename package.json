@@ -1,6 +1,6 @@
 {
   "name": "meta-skills",
-  "version": "1.9.0",
+  "version": "0.2.3",
   "description": "A lightweight, self-improving JSON index that lets agents discover all available skills in ~150 tokens",
   "type": "module",
   "main": "src/cli.mjs",
@@ -8,7 +8,8 @@
     "meta-skills": "src/cli.mjs"
   },
   "scripts": {
-    "test": "node src/global-scanner.test.mjs && node src/project-scanner.test.mjs && node src/usage-tracker.test.mjs && node src/self-improve.test.mjs && node src/maintenance.test.mjs && node src/validate.test.mjs && node src/sync.test.mjs && node src/marketplace.test.mjs && node src/failure-analyzer.test.mjs && node src/dashboard.test.mjs && node src/agent-config.test.mjs && node src/quality-scorer.test.mjs && node src/budget-optimizer.test.mjs && node src/bundle-manager.test.mjs && node src/recipe-runner.test.mjs && node src/semver-compat.test.mjs && node src/rollback-ledger.test.mjs && node src/evolution.test.mjs && node src/skill-watcher.test.mjs && node src/deprecation.test.mjs && node src/permissions.test.mjs && node src/semantic-search.test.mjs && node src/reputation.test.mjs && node src/pilot.test.mjs && node src/selfheal.test.mjs && node src/mcp-telemetry.test.mjs && node src/skill-diff.test.mjs",
+    "prepublishOnly": "npm test",
+    "test": "node src/global-scanner.test.mjs && node src/project-scanner.test.mjs && node src/usage-tracker.test.mjs && node src/self-improve.test.mjs && node src/maintenance.test.mjs && node src/validate.test.mjs && node src/sync.test.mjs && node src/marketplace.test.mjs && node src/failure-analyzer.test.mjs && node src/dashboard.test.mjs && node src/agent-config.test.mjs && node src/quality-scorer.test.mjs && node src/budget-optimizer.test.mjs && node src/bundle-manager.test.mjs && node src/recipe-runner.test.mjs && node src/semver-compat.test.mjs && node src/rollback-ledger.test.mjs && node src/evolution.test.mjs && node src/skill-watcher.test.mjs && node src/deprecation.test.mjs && node src/permissions.test.mjs && node src/semantic-search.test.mjs && node src/reputation.test.mjs && node src/pilot.test.mjs && node src/selfheal.test.mjs && node src/mcp-telemetry.test.mjs && node src/skill-diff.test.mjs && node src/packaging.test.mjs",
     "init:global": "node src/cli.mjs init --global",
     "init:local": "node src/cli.mjs init --local",
     "maintain": "node src/cli.mjs maintain",
@@ -21,7 +22,8 @@
     "budget": "node src/cli.mjs budget",
     "bundle": "node src/cli.mjs bundle",
     "recipe": "node src/cli.mjs recipe",
-  "skill-diff": "node src/cli.mjs skill-diff"
+    "skill-diff": "node src/cli.mjs skill-diff",
+    "test:packaging": "node src/packaging.test.mjs"
   },
   "keywords": [
     "meta-skills",
