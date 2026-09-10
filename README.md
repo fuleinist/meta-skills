@@ -118,8 +118,24 @@ The meta-skills file:
 
 ### Installation
 
+#### Install as a skill (recommended — no npm, no auth)
+
+`meta-skills` is a standards-compliant skill package (see [skills.sh](https://skills.sh) / [Agent Skills standard](https://agentskills.io/specification)), installable into any agent that supports `SKILL.md`:
+
 ```bash
-# From npm (recommended)
+# Project scope (committed with your repo, shared with your team)
+npx skills add fuleinist/meta-skills
+
+# Global scope (available across all your projects)
+npx skills add -g fuleinist/meta-skills
+```
+
+This makes the skill discoverable/installed directly (name + description from `SKILL.md` drive agent activation).
+
+#### Install the CLI (npm) — optional, for the scanner/maintain tooling
+
+```bash
+# From npm (note: requires npm publish; package name meta-skills)
 npm install -g meta-skills
 
 # Or run once without installing
@@ -131,6 +147,8 @@ cd meta-skills
 npm install
 npm link   # exposes `meta-skills` globally
 ```
+
+Distinction: **the skill** is the agent-behavior package (installed via `npx skills add`); **the CLI** is the scanner/maintain tool. You can use either or both.
 
 The npm package bundles everything the CLI reads at runtime (`src/`, `schema/`, `data/`, `examples/`); `src/packaging.test.mjs` guards against drift between the tarball and runtime read paths.
 
