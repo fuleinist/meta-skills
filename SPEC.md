@@ -262,3 +262,63 @@ These are NOT v1.8:
 - **User bundles persist separately** from auto-bundles (no clobber)
 - **Atomic write-back** (temp + rename) for all index mutations
 - **Backward compatible** — new commands only; no changes to existing CLI surface except `--version`
+
+## Multi-iteration evolution loop (issue #36)
+
+### Problem
+
+`evolve --all` is one-shot: baseline → analyze → propose → Pareto filter → write. There is no
+iteration state, no run history, no acceptance statistics, and no early termination. WikiSkill
+Algorithm 1 treats evolution as a bounded loop with per-iteration bookkeeping; meta-skills should
+mirror that shape.
+
+### Solution
+
+`src/evolution-loop.mjs` — a dependency-injected loop controller. Each iteration runs
+measure → propose → gate → (optionally) apply, then records itself.
+
+```
+meta-skills evolve loop run [--iterations 5] [--ceiling 100] [--no-progress-stop 2] [--write] [--json]
+meta-skills evolve loop status [--json]
+```
+
+Options and defaults: `iterations = 5`, `ceiling = 100`, `stopAtCeiling = true`,
+`noProgressStop = 2`, `write = false` (DRY-RUN is the default — the index is never mutated),
+`globalJson` / `proposalsPath` / `iterationsPath` default under `~/.meta-skills/`.
+
+### Records file shape
+
+`~/.meta-skills/evolve/iterations.jsonl`, one JSON object per line:
+
+```json
+{ "ts": "...", "type": "iteration", "runId": "ev-...", "iteration": 1, "mode": "dry-run",
+  "proposalsAttempted": 3, "proposalsKept": 2, "applied": 0, "accepted": 2,
+  "scoreBefore": 50, "scoreAfter": null, "estimatedDelta": 4, "skillIds": ["a"],
+  "stage": "early", "termination": null }
+```
+
+Stage buckets: early = iterations 1-2, mid = 3-5, late = 6+. A closing `type: "summary"` record
+carries `iterationsRun`, `acceptanceRate`, `applied`, `termination`, `avgDelta`,
+`stageStats: { early, mid, late }` and `perSkill: { <id>: { attempted, accepted } }`.
+Corrupt or half-written lines are skipped on read.
+
+### Termination
+
+Checked in order per iteration: `ceiling` (metric ≥ ceiling) → `no-progress` (N consecutive
+iterations without improvement) → `max-iterations` (k === K). `manual` is written by the SIGINT
+path (`finalizeManual()`, exit 130). Improvement means a measured gain in write mode, otherwise a
+positive estimate in dry-run.
+
+### Write mode
+
+`--write` snapshots the index (`rollback-ledger.mjs`), applies the gate-surviving mutations with
+the existing evolution machinery, re-measures, and restores the snapshot when the post-apply score
+drops below the pre-apply score — that iteration is recorded as rejected with reason `regression`.
+
+### Integration notes
+
+The default `measure` dep is the average quality score (scalar 0-100). The issue #35 validation
+harness plugs in later by replacing that dep — keep the scalar contract. `src/wiki.mjs` (in-flight)
+can feed `analyze` with wiki-derived proposals; the loop only requires `analyze(index, baseline)`.
+Read-only views: MCP tool `iteration_summary` and dashboard `GET /api/iterations` both return
+`summarizeIterations()` output.
