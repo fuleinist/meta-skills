@@ -660,3 +660,53 @@ metadata:
 - [Skill Discovery Pattern](https://agents.kour.me/skill-discovery/) - Progressive disclosure for agent capabilities
 - [Library Meta-Skill](https://claudefa.st/blog/guide/mechanics/library-meta-skill) - Centralized skill distribution
 - [EvoSkill: Automated Skill Discovery](https://arxiv.org/html/2603.02766v1) - Self-evolving skill frameworks
+
+## Generality & transferability audit (issue #41)
+
+Skills should transfer across projects, machines and agents. Localized
+workarounds do not transfer — WikiSkill's transfer study measured **negative
+transfer**: a stronger model fell from **50.5 to 18.1** on one benchmark when it
+used a weaker model's localized skills, while general skills raised it to
+**63.4**. `src/generality-audit.mjs` scans content for those signals.
+
+### Signals
+
+`auditGenerality(content, opts)` returns
+`{ score, label, flags: [{ kind, match, count }], ratio }`. Each kind has a
+per-occurrence weight and a per-kind cap (so one stray docs URL cannot wreck a
+score):
+
+| kind | matches | weight | cap |
+|------|---------|--------|-----|
+| `abs-path` | `C:\`, `/Users/`, `/home/`, `\\server` | 12 | 48 |
+| `one-off-url` | `http(s)://…` — borderline for docs URLs, still counted | 3 | 15 |
+| `machine-name` | "this machine", "this pc", "my computer", … | 8 | 40 |
+| `repo-local` | "in/for/local to this repo/project" **plus** a filename token on the same line | 10 | 50 |
+| `user-name` | `C:\Users\<name>\…` or `/Users/<name>/…` subpath | 10 | 40 |
+
+Score = `100 − Σ penalties` (clamped). `ratio` = flags per 1000 chars.
+Labels: **general ≥ 80**, **mixed 50–79**, **localized < 50**.
+
+### Review display
+
+`evolve review` prints one extra line per pending proposal (informational):
+
+```
+    generality: 78/100 (mixed) — flags: abs-path x2, repo-local x1
+```
+
+### `evolve approve --strict`
+
+Reads the target entry's `scope` (`project` or `global`, default `global` when
+absent). A `localized` proposal for a `global`-scope skill is refused with a
+clear message and a non-zero exit; otherwise approval proceeds as usual.
+
+**Escape hatch:** `scope: "project"` skips the refusal — a genuinely
+project-local skill may keep its localized content. `scope` is read
+opportunistically (not yet in `schema/v1.json`).
+
+### Design
+
+- **Deterministic, stdlib only** — regex scan, no LLM calls, no I/O in the audit functions
+- **Review stays informational** — only `approve --strict` enforces
+- **17 tests** in `src/generality-audit.test.mjs` (pure functions, no temp dirs)

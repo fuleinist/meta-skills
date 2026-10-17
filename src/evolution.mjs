@@ -9,6 +9,8 @@
  *   3. Propose: generate mutation proposals with before/after scores
  *   4. Pareto-filter: keep only variants that improve effectiveness
  *   5. Human-in-the-loop: review, approve, or reject proposals
+ *   6. Generality gate (issue #41): audit proposal content for localized
+ *      signals; --strict refuses localized content for global-scope skills
  *
  * Inspiration: EvoSkill (arXiv 2603.02766) — 7.3% OfficeQA gain, 12.1% SealQA gain
  */
@@ -19,6 +21,7 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { scoreAll } from './quality-scorer.mjs';
 import { takeSnapshot } from './rollback-ledger.mjs';
+import { auditGenerality, formatGeneralityReport } from './generality-audit.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -499,6 +502,8 @@ function listProposals(proposalsPath = defaultProposalsPath()) {
     console.log(`    ${p.reason}`);
     console.log(deltaStr);
     console.log(`    Confidence: ${Math.round(p.confidence * 100)}%`);
+    // issue #41 — one generality line per pending proposal
+    console.log(`    ${formatGeneralityReport(auditGenerality(String(p.diff || '')))}`);
     console.log();
   }
 
@@ -507,9 +512,14 @@ function listProposals(proposalsPath = defaultProposalsPath()) {
 
 /**
  * Approve a proposal: apply its diff to a working copy of global.json.
- * Returns the mutated index or null on failure.
+ * Returns the mutated index, or null on failure.
+ *
+ * issue #41: with `strict`, a `localized` proposal is refused when the target
+ * index entry's `scope` is `global` (the default when the field is absent).
+ * `scope: "project"` is the escape hatch — a genuinely project-local skill may
+ * keep its localized content.
  */
-function approveProposal(id, globalJsonPath = defaultGlobalJson(), proposalsPath = defaultProposalsPath()) {
+function approveProposal(id, globalJsonPath = defaultGlobalJson(), proposalsPath = defaultProposalsPath(), { strict = false } = {}) {
   const proposals = readProposals(proposalsPath);
   const proposal = proposals.find(p => p.id === id);
   if (!proposal) throw new Error(`Proposal not found: ${id}`);
@@ -520,6 +530,22 @@ function approveProposal(id, globalJsonPath = defaultGlobalJson(), proposalsPath
     index = JSON.parse(fs.readFileSync(globalJsonPath, 'utf-8'));
   } catch {
     throw new Error(`Cannot read ${globalJsonPath}`);
+  }
+
+  // ── issue #41 — generality gate (approve only; review stays informational) ──
+  if (strict) {
+    const report = auditGenerality(String(proposal.diff || ''));
+    const entry = (index.skills || []).find(s => s.id === (proposal.skillIds || [])[0]);
+    const scope = entry?.scope || 'global';
+
+    if (report.label === 'localized' && scope === 'global') {
+      console.error(`✗ Refused (issue #41): ${id}`);
+      console.error(`  ${formatGeneralityReport(report)} — scope: global`);
+      console.error('  Localized content cannot be approved into a global skill.');
+      console.error('  Generalize the diff, or set "scope": "project" on the entry to skip this gate.');
+      return null;
+    }
+    console.log(`  ${formatGeneralityReport(report)} — scope: ${scope}`);
   }
 
   // Snapshot before mutation
@@ -739,14 +765,15 @@ Usage:
   meta-skills evolve baseline              Run baseline quality measurement
   meta-skills evolve propose [--dry-run]   Generate mutation proposals
   meta-skills evolve review                List pending proposals
-  meta-skills evolve approve <id>          Apply an approved proposal
+  meta-skills evolve approve <id> [--strict]  Apply an approved proposal
   meta-skills evolve reject <id>           Discard a proposal
   meta-skills evolve --all                 Full pipeline: baseline → propose → review
 
 Options:
   --global-json <path>   Custom global.json path
   --dry-run              Preview changes without writing
-  --all                  Run the full evolution pipeline`);
+  --all                  Run the full evolution pipeline
+  --strict               Approve only if the proposal is not localized (issue #41)`);
     process.exit(0);
   }
 
@@ -757,6 +784,7 @@ Options:
       ? args[args.indexOf('--global-json') + 1]
       : defaultGlobalJson(),
     dryRun: args.includes('--dry-run'),
+    strict: args.includes('--strict'),
   };
 
   switch (cmd) {
@@ -772,7 +800,8 @@ Options:
     case 'approve': {
       const id = args[1];
       if (!id) { console.error('Usage: meta-skills evolve approve <id>'); process.exit(1); }
-      approveProposal(id, opts.globalJson);
+      const mutated = approveProposal(id, opts.globalJson, defaultProposalsPath(), { strict: opts.strict });
+      if (!mutated) process.exit(1);
       break;
     }
     case 'reject': {
