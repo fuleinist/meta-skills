@@ -654,6 +654,56 @@ metadata:
 - Node.js engine constraints in package.json
 - EvoSkill version tagging for mutation lineage tracking (future v0.1.2 dependency)
 
+## Analysis sampling & evidence budget (issue #42)
+
+Failure analysis reads a **bounded sample**, not every recorded failure.
+Rules live in `src/sampling.mjs` (stdlib only).
+
+### Budget
+
+| Constant | Value | Meaning |
+|----------|-------|---------|
+| `MAX_TRACES_PER_CYCLE` | 8 | traces one analysis cycle may read |
+| `MAX_FAIL_TRACES` | 5 | failing traces per cycle |
+| `MAX_PASS_TRACES` | 3 | passing traces per cycle (control group) |
+| `MAX_TRACE_CHARS` | 15000 | per-trace character budget |
+
+### Selection pipeline
+
+`selectEvidence(items)` = **dedupe → stratify → caps**:
+
+1. `dedupeByContent` — sha256 of `keyFn(item)` (default JSON of the item),
+   truncated to 12 hex chars; first occurrence wins, order preserved.
+2. `stratify` — split by `item.outcome` (`failure`/`fail` vs `success`/`pass`),
+   sort by timestamp descending when timestamps exist, then cap per class.
+3. `enforceCaps` — count cap + per-item char cap; truncated items get
+   `…[truncated]` and `truncated: true` on a shallow copy (inputs are never
+   mutated).
+
+Returns `{ selected, stats: { input, deduped, failing, passing, truncated } }`.
+
+### Minimum evidence per patch kind
+
+`validateEvidenceCount(count, kind)` → `{ ok, required, actual, message }`:
+
+| Kind | Minimum | Why |
+|------|---------|-----|
+| `antiPattern` | 2 | a repeated mistake needs ≥2 matching traces |
+| `whenTighten` | 2 | a wrong-context trigger needs ≥2 traces |
+| `split` | 5 | heterogeneous use cases (existing split heuristic) |
+| `generic` | 2 | fallback for any other proposal / unknown kind |
+
+### Where it is enforced
+
+- `src/failure-analyzer.mjs` samples each skill's events at the read point
+  (`selectEvidence`) and prints a one-line stats note when items are dropped,
+  capped, or truncated.
+- The declared patch type is gated by `validateEvidenceCount` via
+  `patchKindFor()`; the message is surfaced as a warning without hard-failing
+  existing flows.
+- CLI: `node src/sampling.mjs check --input <file.jsonl> [--json]`.
+- Tests: `src/sampling.test.mjs` (runs in the `npm test` chain).
+
 ## References
 
 - [Agent Skills Specification](https://agentskills.io/specification.md) - The SKILL.md standard
