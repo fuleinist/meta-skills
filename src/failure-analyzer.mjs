@@ -27,6 +27,10 @@
  * Inspired by:
  *   - EvoSkill (7.3% accuracy gain via failure analysis)
  *   - BerriAI/self-improving-agent (human-in-the-loop skill improvement)
+ *
+ * v1.9 (issue #42): analysis reads a bounded sample — dedupe → stratify →
+ * caps (see src/sampling.mjs), and each patch kind is gated by a minimum
+ * evidence count. Dropped/truncated traces print a one-line stats note.
  */
 
 import fs from 'node:fs';
@@ -35,6 +39,7 @@ import os from 'node:os';
 import { execSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { captureFromFailureEvent, listTestCases } from './selfheal.mjs';
+import { selectEvidence, validateEvidenceCount } from './sampling.mjs';
 import { loadSuccessEvents, analyzeSuccesses, clustersToNotes, writeNotes, defaultNotesPath } from './success-miner.mjs';
 import { impactLogPath, appendImpact } from './skill-impact.mjs';
 
@@ -217,6 +222,17 @@ function analyzeFailurePatterns(failures, skillContent) {
   }
 
   return result;
+}
+
+/**
+ * Map a generated patch type to its issue #42 evidence kind.
+ * Unknown types fall back to `generic` (validateEvidenceCount does the same).
+ */
+function patchKindFor(type) {
+  if (type === 'tighten-when' || type === 'add-when') return 'whenTighten';
+  if (type === 'add-anti-patterns') return 'antiPattern';
+  if (type === 'suggest-split') return 'split';
+  return 'generic';
 }
 
 /**
@@ -673,8 +689,17 @@ function analyzeFailures(options = {}) {
 
   // Step 2: For each skill with >= 1 failure, generate a proposal
   const proposals = [];
-  for (const [skillId, failures] of failuresBySkill) {
+  for (const [skillId, rawFailures] of failuresBySkill) {
     console.log(`\n  Analyzing ${skillId}...`);
+
+    // issue #42 — bounded sampling at the read point: dedupe → stratify → caps.
+    const { selected, stats } = selectEvidence(rawFailures);
+    if (stats.deduped < stats.input || stats.truncated > 0 || selected.length < stats.deduped) {
+      console.log(`    sampling: input ${stats.input} → deduped ${stats.deduped}, ` +
+        `fail ${stats.failing}/pass ${stats.passing}, truncated ${stats.truncated}, ` +
+        `selected ${selected.length}`);
+    }
+    const failures = selected;
 
     const { content, entry } = readSkillMd(skillId, globalJsonPath);
     if (!content) {
@@ -688,6 +713,12 @@ function analyzeFailures(options = {}) {
       continue;
     }
 
+    // issue #42 — minimum-evidence gate for the declared patch kind.
+    // Warning-level: the proposal is still produced, but the shortfall is
+    // surfaced so a reviewer can see the evidence budget was not met.
+    const gate = validateEvidenceCount(failures.length, patchKindFor(result.type));
+    if (!gate.ok) console.log(`    ⚠ ${gate.message}`);
+
     console.log(`    → ${result.summary}`);
 
     if (dryRun) {
@@ -699,11 +730,12 @@ function analyzeFailures(options = {}) {
 
       // v0.2.0 self-healing: auto-package a micro-test-case from the latest
       // failure event (dedupe guard — only when the skill has no cases yet).
+      // Uses the raw event so the sampled/truncated copy is never captured.
       let testCaseId = null;
       try {
         const existing = listTestCases(skillId, { testsDir: options.testsDir });
         if (existing.length === 0) {
-          const latest = failures[failures.length - 1];
+          const latest = rawFailures[rawFailures.length - 1];
           const tc = captureFromFailureEvent(skillId, latest, { testsDir: options.testsDir });
           testCaseId = tc.id;
           console.log(`    ✓ Micro-test-case captured: ${tc.id} (${tc.file})`);
@@ -882,6 +914,7 @@ export {
   readSkillMd,
   generatePatch,
   analyzeFailurePatterns,
+  patchKindFor,
   analyzeFailures,
   writeProposal,
   listProposals,

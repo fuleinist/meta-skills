@@ -666,6 +666,67 @@ true positives per kind, clean/mixed/localized fixtures, ratio math, label
 boundaries (80/79, 50/49), caps, format rendering. Runs in the `npm test`
 chain immediately before `packaging.test.mjs`.
 
+## Analysis sampling & evidence budget (issue #42)
+
+Analysis must stay tractable: a cycle reads a bounded, deduped, stratified
+sample instead of every recorded failure. Implemented in `src/sampling.mjs`
+(stdlib only).
+
+### Constants
+
+| Constant | Value | Meaning |
+| --- | --- | --- |
+| `MAX_TRACES_PER_CYCLE` | 8 | total traces one analysis cycle may read |
+| `MAX_FAIL_TRACES` | 5 | failing traces per cycle |
+| `MAX_PASS_TRACES` | 3 | passing traces per cycle (control group) |
+| `MAX_TRACE_CHARS` | 15000 | per-trace character budget |
+| `MIN_EVIDENCE` | see below | minimum evidence per patch kind |
+
+`MIN_EVIDENCE`: `antiPattern` 2, `whenTighten` 2, `split` 5 (this repo's
+existing split heuristic already requires ≥5 heterogeneous failures),
+`generic` 2. Unknown kinds fall back to `generic`.
+
+### Selection pipeline
+
+`selectEvidence(items)` runs, in order:
+
+1. **dedupe** — `dedupeByContent(items, keyFn?)`: sha256 of `keyFn(item)`
+   (default: JSON of the item), truncated to 12 hex chars; first occurrence
+   wins, input order preserved.
+2. **stratify** — `stratify(items)`: split by `item.outcome`
+   (`failure`/`fail` vs `success`/`pass`), ordered by timestamp descending
+   when timestamps exist, then per-class caps.
+3. **caps** — `enforceCaps(items)`: count cap (`MAX_TRACES_PER_CYCLE`) and
+   per-item length cap (`MAX_TRACE_CHARS`); truncated items get `…[truncated]`
+   and `truncated: true` on a shallow copy — inputs are never mutated.
+
+Returns `{ selected, stats: { input, deduped, failing, passing, truncated } }`.
+
+### Minimum-evidence policy
+
+`validateEvidenceCount(count, kind)` returns
+`{ ok, required, actual, message }`. A proposal may not be declared from fewer
+traces than its kind's documented minimum.
+
+### Where it is enforced
+
+- `src/failure-analyzer.mjs` — `analyzeFailures()` samples each skill's events
+  at the read point (`selectEvidence`) and prints a one-line stats note when
+  items are deduped, capped, or truncated.
+- The same loop gates the declared patch type with `validateEvidenceCount`
+  (`patchKindFor()` maps patch types to kinds). Warning-level: the shortfall is
+  surfaced, existing flows are not hard-failed.
+- CLI: `node src/sampling.mjs check --input <file.jsonl> [--json]`.
+- Tests: `src/sampling.test.mjs` (in the `npm test` chain before
+  `packaging.test.mjs`).
+
+### Integration points
+
+Sampling is self-contained by design — modules from other in-flight issues
+(e.g. a future proposer that must read ≥4 traces) should call
+`selectEvidence` + `validateEvidenceCount(count, kind)` rather than re-implement
+the caps.
+
 ## Outcome read-back & retention (issue #34)
 
 **The problem:** the pipeline writes proposals but never reads them back. `analyzeMutations()` /
