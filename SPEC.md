@@ -497,6 +497,56 @@ node src/consolidate.mjs --input ~/.meta-skills/logs --dir ~/.meta-skills/wiki \
 - Wiki layer (issue #33, `src/wiki.mjs`) owns page rendering elsewhere; consolidate writes plain markdown so it stays standalone.
 - `src/cli.mjs` dispatch for `meta-skills consolidate` is a follow-up — the module runs standalone today.
 
+## Success-strategy mining (issue #39)
+
+### Problem
+
+v1.3 failure analysis reads only `outcome=failure` events, and self-improve
+counts usage without capturing *why* a run worked. A skill that keeps
+succeeding has no record of the behavior worth preserving, so a later
+mutation can silently regress it. WikiSkill's trace sampling keeps passing
+traces too — "to identify effective strategies and prevent regressions in
+working behaviors". Issue #39 applies the same idea to meta-skills.
+
+### Solution — `src/success-miner.mjs`
+
+- `loadSuccessEvents({ logDir, maxEvents = 500 })` — read daily `*.jsonl`
+  logs, keep `outcome === 'success'`, skip corrupt lines, cap at `maxEvents`.
+- `analyzeSuccesses(events, { minCount = 2, maxKeywords = 6, maxExcerpts = 3 })`
+  — group by `event.skill`; for skills with `count >= minCount` build
+  `{ skill, count, firstAt, lastAt, keywords, excerpts }`. Keywords use
+  selfheal's extractor (same stopwords, freq-desc then alpha-asc) so both
+  sides of the loop agree; excerpts come from
+  `excerpt | prompt | hint | reason | summary` when the event carries text
+  (plain usage-tracker events often do not → empty `excerpts`).
+- `clustersToNotes(clusters)` → one reinforce note per cluster:
+  `{ skill, kind: 'reinforce', generated, reason, suggestedGuidance: [1-2 bullets] }`.
+- `writeNotes(notes, path)` / `readNotes(path)` — JSONL at
+  `~/.meta-skills/evolve/reinforce-notes.jsonl`. `writeNotes` **appends**
+  (ledger style like `history.jsonl`: cheap, crash-safe, no read-modify-write
+  race). `readNotes` skips corrupt lines and returns `[]` for a missing file.
+  If notes ever need dedupe or in-place update, switch to read + append +
+  atomic write (temp + rename) — that is the tradeoff accepted here.
+
+### CLI
+
+```
+meta-skills success analyze [--log-dir <p>] [--min-count 2] [--max-events 500] [--json]
+meta-skills success notes   [--log-dir <p>] [--min-count 2] [--max-events 500]
+                            [--notes-path <p>] [--write] [--json]
+```
+
+`notes` is **dry-run by default**; `--write` appends and prints the written count.
+
+### Integration
+
+`meta-skills propose --with-success` (function-level `withSuccess` option)
+also loads success events, clusters them and emits reinforce notes — written
+on a real run, printed on `--dry-run`. Without the flag, `propose` behavior is
+unchanged. The integration stays ~20 lines and imports only modules present in
+this tree (`selfheal.mjs`, `success-miner.mjs`); a later issue can feed
+`suggestedGuidance` into the quality scorer or the evolve validation gate.
+
 ## Outcome read-back & retention (issue #34)
 
 **The problem:** the pipeline writes proposals but never reads them back. `analyzeMutations()` /

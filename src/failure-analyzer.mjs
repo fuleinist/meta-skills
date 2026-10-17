@@ -10,6 +10,8 @@
  * Commands:
  *   propose [--since <days>] [--dry-run]
  *     Scan failure logs and generate proposals for each skill.
+ *     --with-success additionally mines success clusters into reinforce
+ *     notes via src/success-miner.mjs (issue #39).
  *   propose list [--all] [--proposals-dir <path>]
  *     List pending proposals. Rejected ones are hidden unless --all, where
  *     each is marked `[rejected <date>]`.
@@ -33,6 +35,7 @@ import os from 'node:os';
 import { execSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { captureFromFailureEvent, listTestCases } from './selfheal.mjs';
+import { loadSuccessEvents, analyzeSuccesses, clustersToNotes, writeNotes, defaultNotesPath } from './success-miner.mjs';
 import { impactLogPath, appendImpact } from './skill-impact.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -606,6 +609,34 @@ function applyPatchToContent(diff) {
   return plusLines.map(l => l.slice(1)).join('\n');
 }
 
+// ── Success-strategy mining (issue #39, opt-in) ────────────────
+
+/**
+ * Opt-in companion to failure analysis: cluster outcome=success events and
+ * emit reinforce notes so working behavior is preserved. Runs only when
+ * options.withSuccess is set; otherwise behavior is unchanged.
+ * @param {object} options
+ * @returns {Array<object>} the notes (printed on dry-run, written otherwise)
+ */
+function mineSuccessNotes(options) {
+  const events = loadSuccessEvents({ logDir: options.logDir || defaultLogDir(), maxEvents: options.maxEvents });
+  const notes = clustersToNotes(analyzeSuccesses(events, { minCount: options.minCount }));
+  if (notes.length === 0) {
+    console.log('\n  Success mining: no clusters met min-count.');
+    return [];
+  }
+  console.log(`\n  Success mining: ${notes.length} reinforce note(s)`);
+  for (const n of notes) console.log(`    ${n.skill}: ${n.reason}`);
+  if (options.dryRun) {
+    console.log('    (dry-run, notes not written)');
+    return notes;
+  }
+  const notesPath = options.notesPath || defaultNotesPath();
+  const written = writeNotes(notes, notesPath);
+  console.log(`    ✓ ${written} note(s) appended: ${notesPath}`);
+  return notes;
+}
+
 // ── Main analysis entry point ──────────────────────────────────
 
 /**
@@ -616,6 +647,7 @@ function applyPatchToContent(diff) {
  * @param {string} [options.proposalsDir]
  * @param {number} [options.sinceDays=7]
  * @param {boolean} [options.dryRun=false]
+ * @param {boolean} [options.withSuccess=false] - issue #39: also mine success clusters → reinforce notes
  * @returns {Array<{skillId, type, summary, filePath}>}
  */
 function analyzeFailures(options = {}) {
@@ -631,6 +663,7 @@ function analyzeFailures(options = {}) {
   const failuresBySkill = groupFailuresBySkill(logDir, sinceDays);
   if (failuresBySkill.size === 0) {
     console.log('  No failures found in logs.');
+    if (options.withSuccess) mineSuccessNotes(options);
     return [];
   }
   console.log(`  Found failures in ${failuresBySkill.size} skill(s):`);
@@ -692,6 +725,8 @@ function analyzeFailures(options = {}) {
     console.log('  Run `meta-skills propose list` to see them.');
     console.log('  Run `meta-skills propose apply <id>` to apply one.');
   }
+
+  if (options.withSuccess) mineSuccessNotes(options);
 
   return proposals;
 }
@@ -785,6 +820,9 @@ function parseProposeArgs(argv) {
     proposalsDir: null,
     logDir: null,
     globalJson: null,
+    withSuccess: false,   // issue #39 — opt-in success-strategy mining
+    minCount: 2,
+    notesPath: null,
     all: false,
     reason: null,
     purge: false,
@@ -795,6 +833,9 @@ function parseProposeArgs(argv) {
     const a = argv[i];
     if (a === '--since' && i + 1 < argv.length) options.sinceDays = parseInt(argv[++i], 10);
     else if (a === '--dry-run') options.dryRun = true;
+    else if (a === '--with-success') options.withSuccess = true;
+    else if (a === '--min-count' && i + 1 < argv.length) options.minCount = parseInt(argv[++i], 10);
+    else if (a === '--notes-path' && i + 1 < argv.length) options.notesPath = path.resolve(argv[++i]);
     else if (a === '--proposals-dir' && i + 1 < argv.length) options.proposalsDir = path.resolve(argv[++i]);
     else if (a === '--log-dir' && i + 1 < argv.length) options.logDir = path.resolve(argv[++i]);
     else if (a === '--global-json' && i + 1 < argv.length) options.globalJson = path.resolve(argv[++i]);
@@ -813,7 +854,7 @@ async function main() {
   const args = process.argv.slice(2);
   if (args.length === 0) {
     console.log(`Usage:
-  meta-skills propose [--since <days>] [--dry-run]
+  meta-skills propose [--since <days>] [--dry-run] [--with-success]
   meta-skills propose list [--all]
   meta-skills propose apply <id>
   meta-skills propose reject <id> [--reason "text"]   # retained as a tombstone
@@ -850,5 +891,6 @@ export {
   sidecarPath,
   deleteProposal,
   cmdPropose,
+  mineSuccessNotes,
   defaultProposalsDir,
 };

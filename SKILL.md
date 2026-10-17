@@ -842,6 +842,48 @@ node src/consolidate.mjs --input ~/.meta-skills/logs --min-evidence 2 --write --
 - Wiki layer (issue #33, `src/wiki.mjs`) owns page rendering elsewhere; consolidate stays standalone.
 - `meta-skills consolidate` dispatch in `src/cli.mjs` is a follow-up.
 
+## Success-strategy mining (issue #39)
+
+Failure analysis (v1.3) learns from `outcome=failure`; this closes the other
+half of the loop by learning from successes, so working behavior is not
+accidentally regressed. Passing traces are kept for the same reason WikiSkill
+samples them — to identify effective strategies.
+
+### Event / note shapes
+
+```
+# daily log event (usage-tracker)
+{"skill":"deploy-app","timestamp":"2026-08-26T10:00:00Z","outcome":"success","excerpt":"deploy rollback verified health endpoint"}
+
+# cluster (analyzeSuccesses, minCount >= 2)
+{ skill, count, firstAt, lastAt, keywords: [<=6], excerpts: [<=3] }
+
+# reinforce note (clustersToNotes → ~/.meta-skills/evolve/reinforce-notes.jsonl)
+{ skill, kind: 'reinforce', generated, reason, suggestedGuidance: [1-2 bullets] }
+```
+
+### CLI
+
+```
+# Cluster summary
+meta-skills success analyze --log-dir ~/.meta-skills/logs --min-count 2 --json
+
+# Reinforce notes — dry-run by default; --write appends JSONL
+meta-skills success notes
+meta-skills success notes --write
+```
+
+### Integration
+
+`meta-skills propose --with-success` runs success mining inside failure
+analysis (`withSuccess` at the function level): clusters → notes, written on a
+real run, printed on `--dry-run`. Without the flag, `propose` is unchanged.
+
+- Keywords use selfheal's extractor, so failure and success analysis agree.
+- Notes are append-only JSONL (crash-safe ledger); `readNotes` skips corrupt
+  lines and returns `[]` for a missing file.
+- Zero new npm deps; 31 assertions in `src/success-miner.test.mjs`.
+
 ## Outcome read-back & retention (v0.2.5)
 
 **The problem:** proposals are generated from current quality scores only. Nothing reads history
