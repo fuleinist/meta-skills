@@ -262,3 +262,59 @@ These are NOT v1.8:
 - **User bundles persist separately** from auto-bundles (no clobber)
 - **Atomic write-back** (temp + rename) for all index mutations
 - **Backward compatible** — new commands only; no changes to existing CLI surface except `--version`
+
+## Wiki Layer (issue #33)
+
+### Problem
+
+Usage events record what happened (`logs/*.jsonl`) and the index records what
+skills exist (`global.json`). Neither records what was learned: the root cause
+behind a failure and the fix that held. Without that layer the same problem is
+rediscovered every session.
+
+### Solution
+
+`src/wiki.mjs` — a persistent, compounding knowledge layer under the
+meta-skills home directory, kept separate from raw usage events and the index:
+
+```
+~/.meta-skills/wiki/
+  index.md         # one entry per pattern: PROBLEM + ROOT CAUSE + FIX
+  logs.md          # append-only timestamped activity log
+  skill-impact.md  # machine-written lines: which skill changed, and why
+  patterns/        # one page per pattern, ~10-30 lines
+```
+
+Skill updates build on this layer: a mutation is justified by a pattern page,
+and the mutation itself is written back to `skill-impact.md`.
+
+### Rules
+
+- Index entries are 1-2 sentences in PROBLEM + ROOT CAUSE + FIX form.
+- Pattern pages are ~10-30 lines: root cause, the exact observed sequence, and
+  the concrete fix.
+- Capture success patterns as well as failure patterns — knowing what works is
+  as valuable as knowing what broke.
+- Update an existing pattern instead of duplicating it; `createPattern` throws
+  when the slug already exists.
+- The wiki is never rolled back — skills are. `rollback-ledger.mjs` restores
+  `global.json` only; the wiki is append/update-only.
+- Pattern names are slugs: lowercase `[a-z0-9-]`, `.md` optional and normalized.
+
+### API
+
+- `defaultWikiDir()`, `ensureWiki(dir)` — idempotent structure creation
+- `readWikiIndex(dir)`, `readWiki(dir)`, `updateIndex(dir, content)`
+- `appendLog(dir, text)`, `recordSkillImpact(dir, entry)`
+- `createPattern(dir, name, content)`, `readPattern(dir, name)`,
+  `updatePattern(dir, name, content)`, `listPatterns(dir)`
+- CLI: `node src/wiki.mjs init|status [--wiki-dir <path>] [--json]`
+
+### Constraints
+
+- Zero new npm deps (`node:fs`, `node:path`, `node:os`)
+- Atomic writes via temp + rename; no `.tmp` files left behind
+- 22 tests in `src/wiki.test.mjs`, every one inside
+  `fs.mkdtempSync(path.join(os.tmpdir(), 'wiki-'))` — the real home directory
+  is never touched
+- No network, no external API calls
