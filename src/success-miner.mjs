@@ -84,7 +84,7 @@ function loadSuccessEvents(opts = {}) {
     } catch {
       continue;
     }
-    for (const line of content.split('\n')) {
+    for (const line of content.replace(/^\uFEFF/, '').split('\n')) {
       if (!line.trim()) continue;
       let event;
       try {
@@ -256,7 +256,7 @@ function readNotes(notesPath) {
   }
 
   const notes = [];
-  for (const line of content.split('\n')) {
+  for (const line of content.replace(/^\uFEFF/, '').split('\n')) {
     if (!line.trim()) continue;
     try {
       const note = JSON.parse(line);

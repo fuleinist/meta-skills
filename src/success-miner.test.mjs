@@ -70,6 +70,11 @@ check('only success events kept', events.every(e => e.outcome === 'success'));
 check('success events counted (7)', events.length === 7);
 check('corrupt lines skipped', events.every(e => e.skill));
 check('missing log dir returns []', loadSuccessEvents({ logDir: path.join(tmpDir, 'nope') }).length === 0);
+const bomDir = path.join(tmpDir, 'bom-logs');
+fs.mkdirSync(bomDir, { recursive: true });
+fs.writeFileSync(path.join(bomDir, '2026-08-24.jsonl'),
+  '\uFEFF' + JSON.stringify({ skill: 'deploy-app', timestamp: '2026-08-24T09:00:00Z', outcome: 'success' }) + '\n', 'utf-8');
+check('BOM-prefixed log file still parses', loadSuccessEvents({ logDir: bomDir }).length === 1);
 check('cap respected at maxEvents', loadSuccessEvents({ logDir, maxEvents: 3 }).length === 3);
 check('default cap is DEFAULT_MAX_EVENTS', DEFAULT_MAX_EVENTS === 500 && loadSuccessEvents({ logDir }).length <= DEFAULT_MAX_EVENTS);
 check('default log dir is ~/.meta-skills/logs', defaultLogDir() === path.join(os.homedir(), '.meta-skills', 'logs'));
