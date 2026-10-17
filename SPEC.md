@@ -437,6 +437,66 @@ own `~/.meta-skills/traces`, never uploaded, never serialized into sync
 payloads — `sync` remains metadata/usage-only. `src/traces.mjs` makes no
 network calls.
 
+## Consolidation step (issue #38)
+
+`src/consolidate.mjs` turns raw evidence into structured knowledge: wiki pattern
+pages with root-cause analysis, plus index + log upkeep.
+
+### Evidence model
+
+One JSONL line per evidence item:
+
+```json
+{"skill": "auth", "outcome": "failure", "timestamp": "2026-01-01T00:00:00Z",
+ "excerpt": "token timeout refresh loop", "traceId": "tr-1"}
+```
+
+`loadEvidence()` accepts a `.jsonl` file or a directory of them (cap 500 entries,
+corrupt lines skipped).
+
+### Grouping and thresholds
+
+- Group by outcome + skill + signature; signature = top ≤6 keywords from the
+  excerpt, frequency-sorted with alphabetical tie-break (deterministic).
+- A group becomes a pattern only when its size ≥ `--min-evidence` (default 2);
+  smaller groups are reported as `skippedBelowThreshold`.
+- Failure groups → `failure-<skill>-<signature-slug>`; success groups →
+  `success-<skill>-<signature-slug>`.
+
+### Pattern template
+
+Enforced sections, in order: `# <name>`, `## Description`, `## Root Cause`,
+`## Evidence`, `## Fix`, `## Last Updated` (ISO date). Evidence bullets are
+`- <ts> <skill> [trace <id>] — <excerpt first 60 chars>`.
+
+### Update, don't duplicate
+
+When `<name>.md` already exists, `upsertPattern()` edits it in place: new bullets
+are inserted right after the `## Evidence` header (exact-substring insertion) and
+`## Last Updated` is refreshed. Pages are never rewritten wholesale and never
+duplicated. Every write is atomic (temp + rename, no `.tmp` leftovers).
+
+### Index and log upkeep
+
+- `index.md` — one sorted line per pattern: `- [<name>](patterns/<name>.md): <description first sentence>`.
+- `logs.md` — one timestamped summary line per run (created/updated counts).
+
+### Dry-run default
+
+`consolidate()` computes everything and writes nothing unless `opts.write === true`
+(CLI `--write`), and reports `dryRun: true` in its summary.
+
+```bash
+node src/consolidate.mjs --input ~/.meta-skills/logs --dir ~/.meta-skills/wiki \
+  --min-evidence 2 --write --json
+```
+
+### Integration points
+
+- Raw trace capture (issue #37, `src/traces.mjs`) supplies `traceId` values; not imported here.
+- Wiki layer (issue #33, `src/wiki.mjs`) owns page rendering elsewhere; consolidate writes plain markdown so it stays standalone.
+- `src/cli.mjs` dispatch for `meta-skills consolidate` is a follow-up — the module runs standalone today.
+
 ## Outcome read-back & retention (issue #34)
 
 **The problem:** the pipeline writes proposals but never reads them back. `analyzeMutations()` /

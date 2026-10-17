@@ -784,6 +784,64 @@ node src/usage-tracker.mjs record my-skill --outcome failure --evidence - --trac
 reasoning excerpts, tool calls, file contents). They are local-only: never
 uploaded, never included in `sync` payloads, which stays metadata/usage-only.
 
+## Consolidation step (issue #38)
+
+`src/consolidate.mjs` converts raw evidence (usage-log events, execution traces)
+into structured knowledge: wiki pattern pages with root-cause analysis, plus
+index + log upkeep.
+
+### Evidence model
+
+One JSONL line per item: `{"skill", "outcome": "failure"|"success", "timestamp",
+"excerpt", "traceId"}`. `loadEvidence()` reads a `.jsonl` file or a directory of
+them (cap 500 entries, corrupt lines skipped).
+
+### Grouping and thresholds
+
+- Group by outcome + skill + signature; signature = top ≤6 keywords from the
+  excerpt, frequency-sorted with alphabetical tie-break (deterministic).
+- Group size must reach `--min-evidence` (default 2); smaller groups are counted
+  as `skippedBelowThreshold` and never become patterns.
+- Failure groups → `failure-<skill>-<signature-slug>`, success groups →
+  `success-<skill>-<signature-slug>`.
+
+### Pattern template
+
+Enforced sections: `# <name>`, `## Description`, `## Root Cause`, `## Evidence`,
+`## Fix`, `## Last Updated` (ISO date). Evidence bullets are
+`- <ts> <skill> [trace <id>] — <excerpt first 60 chars>`.
+
+### Update, don't duplicate
+
+An existing `<name>.md` is edited in place — new bullets go right after the
+`## Evidence` header and `## Last Updated` is refreshed. Pages are never
+rewritten wholesale, never duplicated, and every write is atomic (temp + rename,
+no `.tmp` leftovers).
+
+### Index and log upkeep
+
+- `index.md`: one sorted line per pattern — `- [<name>](patterns/<name>.md): <description first sentence>`
+- `logs.md`: one timestamped summary line per run (created/updated counts)
+
+### Dry-run default
+
+Nothing is written unless `--write` is passed; the summary always reports
+`dryRun`, `created`, `updated`, `evidenceCount`, `skippedBelowThreshold`.
+
+```bash
+# Dry-run (default) — compute only
+node src/consolidate.mjs --input ~/.meta-skills/logs --dir ~/.meta-skills/wiki
+
+# Apply
+node src/consolidate.mjs --input ~/.meta-skills/logs --min-evidence 2 --write --json
+```
+
+### Integration points
+
+- Raw trace capture (issue #37, `src/traces.mjs`) supplies `traceId` values.
+- Wiki layer (issue #33, `src/wiki.mjs`) owns page rendering elsewhere; consolidate stays standalone.
+- `meta-skills consolidate` dispatch in `src/cli.mjs` is a follow-up.
+
 ## Outcome read-back & retention (v0.2.5)
 
 **The problem:** proposals are generated from current quality scores only. Nothing reads history
