@@ -33,7 +33,7 @@ const PKG = JSON.parse(fs.readFileSync(path.resolve(__dirname, '..', 'package.js
 
 // Î"Ã¶Ã‡Î"Ã¶Ã‡ Import all modules directly (no execSync) Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡Î"Ã¶Ã‡
 
-let _scanner, _projectScanner, _tracker, _improver, _maintainer, _validator, _syncer, _marketplace, _failureAnalyzer, _dashboard, _agentConfig, _qualityScorer, _budgetOptimizer, _bundleManager, _recipeRunner, _semanticSearch, _rollback, _semver, _evolution, _deprecation, _pilot, _selfheal, _mcpTelemetry;
+let _scanner, _projectScanner, _tracker, _improver, _maintainer, _validator, _syncer, _marketplace, _failureAnalyzer, _dashboard, _agentConfig, _qualityScorer, _budgetOptimizer, _bundleManager, _recipeRunner, _semanticSearch, _rollback, _semver, _evolution, _deprecation, _pilot, _selfheal, _mcpTelemetry, _skillImpact;
 
 async function ensureModules() {
   if (!_scanner) {
@@ -92,6 +92,9 @@ async function ensureModules() {
   }
   if (!_mcpTelemetry) {
     _mcpTelemetry = await import(pathToFileURL(path.resolve(__dirname, 'mcp-telemetry.mjs')).href);
+  }
+  if (!_skillImpact) {
+    _skillImpact = await import(pathToFileURL(path.resolve(__dirname, 'skill-impact.mjs')).href);
   }
 }
 
@@ -574,6 +577,8 @@ async function cmdEvolve(args) {
   for (let i = 1; i < args.length; i++) {
     if (args[i] === '--global-json' && i + 1 < args.length) options.globalJson = path.resolve(args[++i]);
     else if (args[i] === '--dry-run') options.dryRun = true;
+    else if (args[i] === '--proposals-path' && i + 1 < args.length) options.proposalsPath = path.resolve(args[++i]);
+    else if (args[i] === '--reason' && i + 1 < args.length) options.reason = args[++i];
     else if (!options._passed) options._passed = args[i];
   }
 
@@ -585,7 +590,7 @@ async function cmdEvolve(args) {
       await _evolution.evolve({ ...options, noBaseline: true });
       break;
     case 'review':
-      _evolution.listProposals();
+      _evolution.listProposals(options.proposalsPath);
       break;
     case 'approve': {
       const id = args[1];
@@ -595,14 +600,19 @@ async function cmdEvolve(args) {
     }
     case 'reject': {
       const id = args[1];
-      if (!id) { console.error('Usage: meta-skills evolve reject <id>'); process.exit(1); }
-      _evolution.rejectProposal(id, options.globalJson);
+      if (!id) { console.error('Usage: meta-skills evolve reject <id> [--reason "text"]'); process.exit(1); }
+      _evolution.rejectProposal(id, options.proposalsPath, options.reason);
       break;
     }
     case '--all':
     case 'all':
       await _evolution.evolve(options);
       break;
+    case 'loop': {
+      const loop = await import(pathToFileURL(path.resolve(__dirname, 'evolution-loop.mjs')).href);
+      await loop.cmdLoop(args.slice(1));
+      break;
+    }
     default:
       // No subcommand = show help
       console.log(`meta-skills evolve — Autonomous skill evolution (v0.1)
@@ -610,13 +620,17 @@ async function cmdEvolve(args) {
 Usage:
   meta-skills evolve baseline              Run baseline quality measurement
   meta-skills evolve propose [--dry-run]   Generate mutation proposals
-  meta-skills evolve review                List pending proposals
+  meta-skills evolve review                List pending proposals + prior rejections
   meta-skills evolve approve <id>          Apply an approved proposal
-  meta-skills evolve reject <id>           Discard a proposal
+  meta-skills evolve reject <id> [--reason "text"]
+                                          Reject — retained as a tombstone (v0.2.5)
   meta-skills evolve --all                 Full pipeline: baseline → propose → review
+  meta-skills evolve loop run|status       K-iteration loop (issue #36, dry-run default)
 
 Options:
   --global-json <path>   Custom global.json path
+  --proposals-path <path> Custom proposals.jsonl (audit trail sits beside it)
+  --reason <text>        Why the proposal was rejected (recorded in the audit trail)
   --dry-run              Preview changes without writing`);
       process.exit(0);
   }
@@ -1054,6 +1068,11 @@ async function cmdMcpCmd(args) {
   await _mcpTelemetry.cmdMcp(args);
 }
 
+async function cmdSkillImpactCmd(args) {
+  await ensureModules();
+  await _skillImpact.cmdSkillImpact(args);
+}
+
 function showHelp() {
   console.log(`meta-skills v${PKG.version} - Agent Skill Index`);
   console.log('');
@@ -1071,9 +1090,10 @@ function showHelp() {
   console.log('  validate <file>            Validate a meta-skills JSON file');
   console.log('  validate <file> --check-engines  Validate + check engine compatibility (v0.1.1)');
   console.log('  propose [--since <days>]   Analyze failures and generate improvement proposals (v1.3)');
-  console.log('  propose list               List pending proposals');
-  console.log('  propose apply <id>         View a proposal');
-  console.log('  propose reject <id>        Delete a proposal');
+  console.log('  propose list [--all]         List pending proposals (--all includes rejected tombstones)');
+  console.log('  propose apply <id>           View a proposal');
+  console.log('  propose reject <id> [--reason "text"]  Reject — retained as a tombstone (v0.2.5)');
+  console.log('  propose reject <id> --purge --yes      Permanently delete a proposal (v0.2.5)');
   console.log('  propose auto-pr <id>       File a PR via gh CLI with the proposed patch');
   console.log('  status                     Show index summary');
   console.log('  status --json              Show index summary as JSON');
@@ -1112,7 +1132,7 @@ function showHelp() {
   console.log('    semver engines <skill-id>');
   console.log('    semver deps [--global-json <path>]');
   console.log('    semver check-deprecated [--global-json <path>]');
-  console.log('  evolve <baseline|propose|review|approve|reject|--all>  Autonomous skill evolution (v0.1)');
+  console.log('  evolve <baseline|propose|review|approve|reject|--all|loop>  Autonomous skill evolution (v0.1)');
   console.log('  deprecate <skill-id> [successor-id]   Mark skill as deprecated (v0.1.7)');
   console.log('  deprecate list                        List deprecated active skills');
   console.log('  undeprecate <skill-id>                Remove deprecated status');
@@ -1129,14 +1149,17 @@ function showHelp() {
   console.log('    selfheal test <skill-id> [--skill-path <p>] [--threshold N] [--json]');
   console.log('    selfheal validate <skill-id> --mutated <path> [--skill-path <p>] [--threshold N] [--json]');
   console.log('    selfheal list [skill-id]');
+  console.log('  skill-impact list [--store <dir-or-file>] [--json]  Outcome audit trail (v0.2.5)');
   console.log('  mcp [--index <path>]             Skill telemetry MCP server on stdio (v0.2.1)');
   console.log('  skill-diff <dirA> <dirB> [--json] [--migrate] [--apply]  Cross-workspace skill diff & migration (v0.2.2)');
   console.log('    evolve baseline              Run baseline quality measurement');
   console.log('    evolve propose [--dry-run]   Generate mutation proposals');
   console.log('    evolve review                List pending proposals');
   console.log('    evolve approve <id>          Apply an approved proposal');
-  console.log('    evolve reject <id>           Discard a proposal');
+  console.log('    evolve reject <id> [--reason "text"]  Reject — retained as a tombstone (v0.2.5)');
   console.log('    evolve --all                 Full pipeline: baseline → propose → review');
+  console.log('    evolve loop run [--iterations 5] [--ceiling 100] [--no-progress-stop 2] [--write] [--json]');
+  console.log('    evolve loop status [--json]  Iteration-loop summary (issue #36, dry-run default)');
   console.log('');
   console.log('Options:');
   console.log('  --help                     Show this help message');
@@ -1260,6 +1283,7 @@ async function main() {
       case 'selfheal':     await cmdSelfhealCmd(rest); break;
       case 'mcp':          await cmdMcpCmd(rest); break;
       case 'skill-diff':   await cmdSkillDiff(rest); break;
+      case 'skill-impact':  await cmdSkillImpactCmd(rest); break;
       default:
         console.error(`✗ unknown command: ${command}`);
         console.error('  Run `meta-skills --help` for usage.');
