@@ -654,6 +654,32 @@ metadata:
 - Node.js engine constraints in package.json
 - EvoSkill version tagging for mutation lineage tracking (future v0.1.2 dependency)
 
+## Raw evidence capture (issue #37)
+
+Usage events are shallow; root-cause analysis needs the actual evidence.
+`src/traces.mjs` is the raw layer behind `record --evidence`.
+
+```bash
+node src/usage-tracker.mjs record my-skill --outcome failure --evidence trace.md
+node src/usage-tracker.mjs record my-skill --outcome failure --evidence - --traces-dir /tmp/traces
+```
+
+- Traces live in `~/.meta-skills/traces/<id>.md` with
+  `<id>` = `<yyyymmdd-hhmmss>-<hash6>` (deterministic: time + content hash).
+- **Write-once**: a second store of the same id throws — traces are immutable,
+  and there is no delete/prune API.
+- **Bounded**: each trace is capped at 15,000 chars; the stored file keeps the
+  head and ends with `[truncated: kept 15000 of N chars]`.
+- **Sampled**: an analysis cycle takes at most 8 traces
+  (`MAX_FAIL_TRACES = 5` failing + `MAX_PASS_TRACES = 3` passing), applied by
+  `sampleTraces(items)` in deterministic input order.
+- **Linked**: the usage event gains `traceId` (plus `traceTruncated` when the
+  cap was hit); events recorded without `--evidence` are unchanged.
+
+**Privacy** — traces are user-provided and may contain sensitive data (prompts,
+reasoning excerpts, tool calls, file contents). They are local-only: never
+uploaded, never included in `sync` payloads, which stays metadata/usage-only.
+
 ## References
 
 - [Agent Skills Specification](https://agentskills.io/specification.md) - The SKILL.md standard

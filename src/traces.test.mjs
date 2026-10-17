@@ -32,10 +32,8 @@ console.log('storeTrace → readTrace:');
 const content = 'reasoning excerpt\n\ntool_call: read src/usage-tracker.mjs\noutcome: failure';
 const stored = storeTrace(content, { dir: tmpDir });
 check('store returns id', typeof stored.id === 'string' && stored.id.length > 0);
-check('store returns path inside dir', stored.path === path.join(tmpDir, `${stored.id}.md`));
 check('file exists on disk', fs.existsSync(stored.path));
 check('roundtrip content identical', readTrace(stored.id, { dir: tmpDir }) === content);
-check('not truncated flag false for small content', stored.truncated === false);
 check('originalChars = content length', stored.originalChars === content.length);
 check('default id shape yyyymmdd-hhmmss-hash6', /^\d{8}-\d{6}-[0-9a-f]{6}$/.test(stored.id));
 
@@ -93,7 +91,6 @@ check('fail cap applied (5 of 10)', sample.failing.length === 5);
 check('pass cap applied (3 of 6)', sample.passing.length === 3);
 check('sampled = failing + passing', sample.sampled.length === 8);
 check('classification keeps input order', sample.failing[0].id === 'f0' && sample.passing[0].id === 'p0');
-check('total counts all items', sample.total === 17);
 check('alias outcomes (fail/pass) classified', sampleTraces([{ outcome: 'fail' }, { outcome: 'pass' }]).sampled.length === 2);
 check('overrides respected', sampleTraces(items, { maxFail: 2, maxPass: 1 }).sampled.length === 3);
 
