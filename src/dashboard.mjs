@@ -20,6 +20,7 @@
  *   GET /api/cooccurrence       skill pairs that activated within 5min window
  *   GET /api/heatmap?days=7     skills x days matrix
  *   GET /api/bundles            suggested bundles from global.json
+ *   GET /api/iterations         evolution-loop summary from iterations.jsonl (issue #36)
  */
 
 import http from 'node:http';
@@ -30,6 +31,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { buildBudgetPanel } from './budget-optimizer.mjs';
 import { listBundles, getBundle, computeBundleMetrics, suggestBundles as detectBundleSuggestions } from './bundle-manager.mjs';
 import { readRecipe } from './recipe-runner.mjs';
+import { readIterations, summarizeIterations, defaultIterationsPath } from './evolution-loop.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_HOST = '127.0.0.1';
@@ -361,6 +363,10 @@ function makeHandler(options) {
         const action = params.action === 'archive' ? 'archive' : 'demote';
         const index = readIndex(globalPath);
         sendJson(res, 200, buildBudgetPanel(index, { maxTokens: max, action }));
+        return;
+      }
+      if (urlPath === '/api/iterations') {
+        sendJson(res, 200, summarizeIterations(readIterations(options.iterationsPath || defaultIterationsPath())));
         return;
       }
       if (urlPath === '/api/health') {

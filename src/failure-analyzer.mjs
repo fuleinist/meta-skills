@@ -10,12 +10,17 @@
  * Commands:
  *   propose [--since <days>] [--dry-run]
  *     Scan failure logs and generate proposals for each skill.
- *   propose list [--proposals-dir <path>]
- *     List pending proposals.
+ *     --with-success additionally mines success clusters into reinforce
+ *     notes via src/success-miner.mjs (issue #39).
+ *   propose list [--all] [--proposals-dir <path>]
+ *     List pending proposals. Rejected ones are hidden unless --all, where
+ *     each is marked `[rejected <date>]`.
  *   propose apply <id> [--proposals-dir <path>]
  *     Apply a proposal (opens file for review, or creates PR).
- *   propose reject <id> [--proposals-dir <path>]
- *     Delete a proposal.
+ *   propose reject <id> [--reason "text"] [--proposals-dir <path>]
+ *     Reject a proposal. The patch is RETAINED as a tombstone plus a
+ *     `<id>.rejected.json` sidecar, and the outcome is recorded in the
+ *     skill-impact audit trail. `--purge --yes` deletes it permanently.
  *   propose auto-pr <id> [--proposals-dir <path>]
  *     File a PR via gh CLI with the proposed patch.
  *
@@ -30,6 +35,8 @@ import os from 'node:os';
 import { execSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { captureFromFailureEvent, listTestCases } from './selfheal.mjs';
+import { loadSuccessEvents, analyzeSuccesses, clustersToNotes, writeNotes, defaultNotesPath } from './success-miner.mjs';
+import { impactLogPath, appendImpact } from './skill-impact.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -393,7 +400,36 @@ function writeProposal(skillId, patch, type, summary, proposalsDir) {
   return filePath;
 }
 
-function listProposals(proposalsDir) {
+function proposalBaseName(id) {
+  return id.endsWith('.patch') ? id.slice(0, -6) : id;
+}
+
+function sidecarPath(id, proposalsDir) {
+  const dir = proposalsDir || defaultProposalsDir();
+  return path.join(dir, `${proposalBaseName(id)}.rejected.json`);
+}
+
+/**
+ * Read the rejection tombstone sidecar for a proposal, or null when absent.
+ * @param {string} id
+ * @param {string} [proposalsDir]
+ * @returns {object|null} `{ rejectedAt, reason }`
+ */
+function readRejection(id, proposalsDir) {
+  try {
+    return JSON.parse(fs.readFileSync(sidecarPath(id, proposalsDir), 'utf-8'));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * List proposals. Rejected ones are hidden by default — pass `{ all: true }`
+ * to include them (issue #34).
+ * @param {string} [proposalsDir]
+ * @param {{all?: boolean}} [opts]
+ */
+function listProposals(proposalsDir, opts = {}) {
   const dir = proposalsDir || defaultProposalsDir();
   let files;
   try {
@@ -404,17 +440,22 @@ function listProposals(proposalsDir) {
 
   return files.map(f => {
     const filePath = path.join(dir, f);
+    const rejection = readRejection(f, dir);
+    let parsed;
     try {
-      const content = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-      return {
-        file: f,
-        filePath,
-        ...content.meta,
-      };
+      parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
     } catch {
-      return { file: f, filePath, skill: 'unknown', generated: null, type: 'unknown', summary: '(unparseable)' };
+      parsed = { meta: { skill: 'unknown', generated: null, type: 'unknown', summary: '(unparseable)' } };
     }
-  }).sort((a, b) => {
+    return {
+      file: f,
+      filePath,
+      ...parsed.meta,
+      rejected: Boolean(rejection),
+      rejectedAt: rejection ? rejection.rejectedAt : null,
+      rejectReason: rejection ? rejection.reason : null,
+    };
+  }).filter(p => !p.rejected || opts.all).sort((a, b) => {
     if (!a.generated) return 1;
     if (!b.generated) return -1;
     return b.generated.localeCompare(a.generated);
@@ -432,6 +473,51 @@ function readProposal(id, proposalsDir) {
   }
 }
 
+/**
+ * Reject a proposal with retention semantics (issue #34): the patch file is
+ * kept, a `<id>.rejected.json` sidecar records the decision, and the outcome
+ * is appended to the skill-impact audit trail beside the proposal store.
+ * Rejection is memory, not amnesia — the evolution engine reads it back.
+ * @param {string} id
+ * @param {string} [proposalsDir]
+ * @param {string} [reason]
+ * @returns {{ filePath: string, sidecar: string }}
+ */
+function rejectProposal(id, proposalsDir, reason = null) {
+  const dir = proposalsDir || defaultProposalsDir();
+  const filePath = path.join(dir, id.endsWith('.patch') ? id : `${id}.patch`);
+  if (!fs.existsSync(filePath)) {
+    throw new Error(`proposal not found: ${id}`);
+  }
+
+  const record = { rejectedAt: new Date().toISOString(), reason: reason || null };
+  const sidecar = sidecarPath(id, dir);
+  fs.writeFileSync(sidecar, JSON.stringify(record, null, 2) + '\n', 'utf-8');
+
+  let meta = {};
+  try {
+    meta = JSON.parse(fs.readFileSync(filePath, 'utf-8')).meta || {};
+  } catch { /* unparseable patch still gets a tombstone */ }
+
+  appendImpact(
+    {
+      proposalId: id,
+      type: meta.type || 'unknown',
+      skills: meta.skill ? [meta.skill] : [],
+      outcome: 'rejected',
+      reason,
+    },
+    impactLogPath(dir),
+  );
+
+  return { filePath, sidecar };
+}
+
+/**
+ * Permanently delete a proposal and its tombstone sidecar. This is the purge
+ * path — destructive by design, and the CLI only reaches it with
+ * `--purge --yes`.
+ */
 function deleteProposal(id, proposalsDir) {
   const dir = proposalsDir || defaultProposalsDir();
   const filePath = path.join(dir, id.endsWith('.patch') ? id : `${id}.patch`);
@@ -439,6 +525,9 @@ function deleteProposal(id, proposalsDir) {
     throw new Error(`proposal not found: ${id}`);
   }
   fs.unlinkSync(filePath);
+  try {
+    fs.unlinkSync(sidecarPath(id, dir));
+  } catch { /* no tombstone to remove */ }
   return filePath;
 }
 
@@ -520,6 +609,34 @@ function applyPatchToContent(diff) {
   return plusLines.map(l => l.slice(1)).join('\n');
 }
 
+// ── Success-strategy mining (issue #39, opt-in) ────────────────
+
+/**
+ * Opt-in companion to failure analysis: cluster outcome=success events and
+ * emit reinforce notes so working behavior is preserved. Runs only when
+ * options.withSuccess is set; otherwise behavior is unchanged.
+ * @param {object} options
+ * @returns {Array<object>} the notes (printed on dry-run, written otherwise)
+ */
+function mineSuccessNotes(options) {
+  const events = loadSuccessEvents({ logDir: options.logDir || defaultLogDir(), maxEvents: options.maxEvents });
+  const notes = clustersToNotes(analyzeSuccesses(events, { minCount: options.minCount }));
+  if (notes.length === 0) {
+    console.log('\n  Success mining: no clusters met min-count.');
+    return [];
+  }
+  console.log(`\n  Success mining: ${notes.length} reinforce note(s)`);
+  for (const n of notes) console.log(`    ${n.skill}: ${n.reason}`);
+  if (options.dryRun) {
+    console.log('    (dry-run, notes not written)');
+    return notes;
+  }
+  const notesPath = options.notesPath || defaultNotesPath();
+  const written = writeNotes(notes, notesPath);
+  console.log(`    ✓ ${written} note(s) appended: ${notesPath}`);
+  return notes;
+}
+
 // ── Main analysis entry point ──────────────────────────────────
 
 /**
@@ -530,6 +647,7 @@ function applyPatchToContent(diff) {
  * @param {string} [options.proposalsDir]
  * @param {number} [options.sinceDays=7]
  * @param {boolean} [options.dryRun=false]
+ * @param {boolean} [options.withSuccess=false] - issue #39: also mine success clusters → reinforce notes
  * @returns {Array<{skillId, type, summary, filePath}>}
  */
 function analyzeFailures(options = {}) {
@@ -545,6 +663,7 @@ function analyzeFailures(options = {}) {
   const failuresBySkill = groupFailuresBySkill(logDir, sinceDays);
   if (failuresBySkill.size === 0) {
     console.log('  No failures found in logs.');
+    if (options.withSuccess) mineSuccessNotes(options);
     return [];
   }
   console.log(`  Found failures in ${failuresBySkill.size} skill(s):`);
@@ -607,6 +726,8 @@ function analyzeFailures(options = {}) {
     console.log('  Run `meta-skills propose apply <id>` to apply one.');
   }
 
+  if (options.withSuccess) mineSuccessNotes(options);
+
   return proposals;
 }
 
@@ -619,7 +740,7 @@ async function cmdPropose(args) {
 
   switch (subcommand) {
     case 'list': {
-      const proposals = listProposals(options.proposalsDir);
+      const proposals = listProposals(options.proposalsDir, { all: options.all });
       if (proposals.length === 0) {
         console.log('  No pending proposals.');
         return;
@@ -627,9 +748,11 @@ async function cmdPropose(args) {
       console.log(`  ${proposals.length} proposal(s):\n`);
       for (const p of proposals) {
         const ts = p.generated ? p.generated.slice(0, 16).replace('T', ' ') : '(unknown)';
-        console.log(`  ${p.file}`);
+        const mark = p.rejected ? ` [rejected ${p.rejectedAt ? p.rejectedAt.slice(0, 10) : 'unknown'}]` : '';
+        console.log(`  ${p.file}${mark}`);
         console.log(`    Skill: ${p.skill}  |  Type: ${p.type}  |  Generated: ${ts}`);
         console.log(`    ${p.summary}`);
+        if (p.rejectReason) console.log(`    reason: ${p.rejectReason}`);
       }
       break;
     }
@@ -655,10 +778,19 @@ async function cmdPropose(args) {
 
     case 'reject': {
       const id = args[1];
-      if (!id) throw new Error('Usage: meta-skills propose reject <id>');
+      if (!id) throw new Error('Usage: meta-skills propose reject <id> [--reason "text"] [--purge --yes]');
 
-      const filePath = deleteProposal(id, options.proposalsDir);
-      console.log(`  ✗ Proposal deleted: ${filePath}`);
+      if (options.purge) {
+        if (!options.yes) throw new Error('refusing to purge without --yes');
+        const filePath = deleteProposal(id, options.proposalsDir);
+        console.log(`  ✗ Proposal purged (deleted): ${filePath}`);
+        break;
+      }
+
+      const { filePath, sidecar } = rejectProposal(id, options.proposalsDir, options.reason);
+      console.log(`  ✗ Proposal rejected (retained): ${filePath}`);
+      console.log(`    tombstone: ${sidecar}`);
+      if (options.reason) console.log(`    reason: ${options.reason}`);
       break;
     }
 
@@ -688,15 +820,29 @@ function parseProposeArgs(argv) {
     proposalsDir: null,
     logDir: null,
     globalJson: null,
+    withSuccess: false,   // issue #39 — opt-in success-strategy mining
+    minCount: 2,
+    notesPath: null,
+    all: false,
+    reason: null,
+    purge: false,
+    yes: false,
   };
 
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--since' && i + 1 < argv.length) options.sinceDays = parseInt(argv[++i], 10);
     else if (a === '--dry-run') options.dryRun = true;
+    else if (a === '--with-success') options.withSuccess = true;
+    else if (a === '--min-count' && i + 1 < argv.length) options.minCount = parseInt(argv[++i], 10);
+    else if (a === '--notes-path' && i + 1 < argv.length) options.notesPath = path.resolve(argv[++i]);
     else if (a === '--proposals-dir' && i + 1 < argv.length) options.proposalsDir = path.resolve(argv[++i]);
     else if (a === '--log-dir' && i + 1 < argv.length) options.logDir = path.resolve(argv[++i]);
     else if (a === '--global-json' && i + 1 < argv.length) options.globalJson = path.resolve(argv[++i]);
+    else if (a === '--all') options.all = true;
+    else if (a === '--reason' && i + 1 < argv.length) options.reason = argv[++i];
+    else if (a === '--purge') options.purge = true;
+    else if (a === '--yes') options.yes = true;
   }
 
   return options;
@@ -708,10 +854,11 @@ async function main() {
   const args = process.argv.slice(2);
   if (args.length === 0) {
     console.log(`Usage:
-  meta-skills propose [--since <days>] [--dry-run]
-  meta-skills propose list
+  meta-skills propose [--since <days>] [--dry-run] [--with-success]
+  meta-skills propose list [--all]
   meta-skills propose apply <id>
-  meta-skills propose reject <id>
+  meta-skills propose reject <id> [--reason "text"]   # retained as a tombstone
+  meta-skills propose reject <id> --purge --yes        # permanent delete
   meta-skills propose auto-pr <id>`);
     process.exit(0);
   }
@@ -739,7 +886,11 @@ export {
   writeProposal,
   listProposals,
   readProposal,
+  rejectProposal,
+  readRejection,
+  sidecarPath,
   deleteProposal,
   cmdPropose,
+  mineSuccessNotes,
   defaultProposalsDir,
 };
