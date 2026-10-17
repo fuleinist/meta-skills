@@ -730,7 +730,7 @@ async function evolve(options = {}) {
 
 // ── CLI ─────────────────────────────────────────────────────────────────────
 
-function main() {
+async function main() {
   const args = process.argv.slice(2);
   if (args.length === 0) {
     console.log(`meta-skills evolve — Autonomous skill evolution (v0.1)
@@ -742,6 +742,7 @@ Usage:
   meta-skills evolve approve <id>          Apply an approved proposal
   meta-skills evolve reject <id>           Discard a proposal
   meta-skills evolve --all                 Full pipeline: baseline → propose → review
+  meta-skills evolve loop run|status       K-iteration loop with per-iteration records (issue #36)
 
 Options:
   --global-json <path>   Custom global.json path
@@ -785,6 +786,13 @@ Options:
     case 'all':
       evolve(opts);
       break;
+    case 'loop': {
+      // Delegated to src/evolution-loop.mjs (issue #36). Dynamic import keeps
+      // the two modules acyclic at load time.
+      const loop = await import('./evolution-loop.mjs');
+      await loop.cmdLoop(args.slice(1));
+      break;
+    }
     default:
       console.error(`Unknown evolve subcommand: ${cmd}`);
       process.exit(1);
@@ -795,7 +803,7 @@ const isMain = process.argv[1] && (
   process.argv[1] === fileURLToPath(import.meta.url)
   || process.argv[1].endsWith('evolution.mjs')
 );
-if (isMain) main();
+if (isMain) main().catch((e) => { console.error(`✗ ${e.message}`); process.exit(1); });
 
 export {
   runBaseline,
