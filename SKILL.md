@@ -884,6 +884,48 @@ real run, printed on `--dry-run`. Without the flag, `propose` is unchanged.
   lines and returns `[]` for a missing file.
 - Zero new npm deps; 31 assertions in `src/success-miner.test.mjs`.
 
+## Skill provenance (issue #40)
+
+Every skill carries its story in `PURPOSE.md`, next to its `SKILL.md`:
+
+```markdown
+# PURPOSE: git-commits
+
+## What this skill is
+Writes commit messages in house style.
+
+## Origin
+Derived from the wiki pattern "commit as narrative".
+
+## Evidence
+- 3 reviews flagged vague messages
+- usage_count=42
+
+## Evolution History
+- 2026-03-01 0.2.0 — tightened trigger to commit messages only
+- 2026-02-01 0.1.0 — created from the quality baseline audit
+```
+
+- **Append-only history** — a new entry is inserted as the first list item directly under `## Evolution History`; older entries are never rewritten (newest first).
+- **Create guard** — `writePurpose()` refuses to clobber an existing `PURPOSE.md` unless `opts.overwrite` is set.
+- **Atomic writes** — temp + rename, matching the house pattern; no `.tmp` leftovers.
+
+### CLI
+
+```bash
+node src/provenance.mjs init <skillDir> --name git-commits --description "..." --origin "..."
+node src/provenance.mjs append <skillDir> --summary "tightened trigger" --version 0.2.0
+node src/provenance.mjs show <skillDir>
+node src/provenance.mjs check --global-json ~/.meta-skills/global.json --json
+```
+
+### Integration notes
+
+- `evolution.mjs` — after `approveProposal()` applies a mutation, each affected skill gets a `PURPOSE.md` (origin `Created by evolution approval <proposal id>`) plus one history entry built from `proposal.reason` and the new version. Best-effort, wrapped in try/catch: approvals never fail because of provenance.
+- `validate.mjs --check-provenance` — warnings only (exit 0), analogous to `--check-engines`.
+- `cli.mjs` subcommand wiring is a documented future integration point; the module is self-contained.
+- **25 provenance tests** (`src/provenance.test.mjs`, temp dirs only).
+
 ## Outcome read-back & retention (v0.2.5)
 
 **The problem:** proposals are generated from current quality scores only. Nothing reads history

@@ -547,6 +547,70 @@ unchanged. The integration stays ~20 lines and imports only modules present in
 this tree (`selfheal.mjs`, `success-miner.mjs`); a later issue can feed
 `suggestedGuidance` into the quality scorer or the evolve validation gate.
 
+## Skill provenance (issue #40)
+
+`src/provenance.mjs` gives every skill a durable `PURPOSE.md` in its own directory — the
+meta-skills analogue of WikiSkill's `PURPOSE.md`, which maps a skill back to the patterns
+that inspired it. Without it, audits like "why does this rule exist?" are impossible after a
+few mutations; `splitFrom` / `mergedFrom` / `rewrittenBy` are incidental index fields, not a
+story.
+
+### Template
+
+```markdown
+# PURPOSE: <name>
+
+## What this skill is
+<description>
+
+## Origin
+<origin>
+
+## Evidence
+- <bullet>
+
+## Evolution History
+- <date> <version?> — <summary>
+```
+
+- The history section may start empty; entries render as `- <date> <version?> — <summary>`.
+- **Append-only**: `appendHistory()` inserts the new line as the first list item directly
+  after the `## Evolution History` header line — existing entries are never rewritten.
+- **Create guard**: `writePurpose()` throws if `PURPOSE.md` already exists unless
+  `opts.overwrite` is true; `ensurePurpose()` creates only when missing.
+- **Atomic write** (temp + rename), matching the house pattern.
+
+### CLI
+
+```bash
+node src/provenance.mjs init <skillDir> --name X [--description ..] [--origin ..] [--overwrite]
+node src/provenance.mjs append <skillDir> --summary ".." [--version ..] [--date YYYY-MM-DD]
+node src/provenance.mjs show <skillDir>
+node src/provenance.mjs check [--global-json <path>] [--json]
+```
+
+`check` lists skill ids whose resolved directory (dirname of the entry's `path`) has no
+`PURPOSE.md`; entries with a missing or unresolvable path are skipped.
+
+### Integration
+
+- **evolution.mjs** — `approveProposal()` calls `recordProvenance()` after the mutation is
+  applied: for each affected skill id, resolve the `SKILL.md` path from the updated index;
+  if the file exists, ensure `PURPOSE.md` (origin `Created by evolution approval <proposal id>`)
+  and append one history entry (`date`, new `version`, `summary = proposal.reason`).
+  Fully best-effort and wrapped in try/catch — approvals never fail because of provenance,
+  and unresolvable skills are skipped silently.
+- **validate.mjs** — `--check-provenance` emits warnings (not errors) for skills missing
+  `PURPOSE.md`, analogous to `--check-engines`; exit code is unchanged.
+- **cli.mjs** — subcommand wiring is a documented integration point, not part of this change.
+- **Tests** — `src/provenance.test.mjs` (25 assertions, temp dirs only), inserted into the
+  test chain immediately before `src/packaging.test.mjs`.
+
+### Constraints
+
+- Zero new npm deps (Node stdlib only), portable APIs (Windows-safe `fs.renameSync`).
+- No changes to existing behavior: provenance is additive, warning-only, and best-effort.
+
 ## Outcome read-back & retention (issue #34)
 
 **The problem:** the pipeline writes proposals but never reads them back. `analyzeMutations()` /

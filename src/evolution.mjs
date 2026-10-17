@@ -19,6 +19,7 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { scoreAll } from './quality-scorer.mjs';
 import { takeSnapshot } from './rollback-ledger.mjs';
+import { ensurePurpose, appendHistory } from './provenance.mjs';
 import { checkGateForSkill, defaultValidationDir } from './validation-harness.mjs';
 import { impactLogPath, impactKey, appendImpact, readImpact } from './skill-impact.mjs';
 
@@ -565,6 +566,36 @@ function listProposals(proposalsPath = defaultProposalsPath()) {
 }
 
 /**
+ * Issue #40 — best-effort provenance for an approved mutation.
+ * Ensures PURPOSE.md exists for each affected skill and appends one history
+ * entry. Never throws: an approval must not fail because of provenance.
+ */
+function recordProvenance(mutated, proposal) {
+  try {
+    const skillMap = new Map((mutated.skills || []).map(s => [s.id, s]));
+    const date = new Date().toISOString().slice(0, 10);
+
+    for (const id of proposal.skillIds || []) {
+      const skill = skillMap.get(id);
+      if (!skill?.path) continue;
+      if (!fs.existsSync(skill.path)) continue;
+
+      const dir = path.dirname(skill.path);
+      try {
+        ensurePurpose(dir, {
+          name: id,
+          description: skill.when || skill.why || '',
+          origin: `Created by evolution approval ${proposal.id}`,
+          evidence: [],
+          history: [],
+        });
+        appendHistory(dir, { date, version: skill.version, summary: proposal.reason });
+      } catch { /* unresolvable skill dir — skip silently */ }
+    }
+  } catch { /* provenance is best-effort */ }
+}
+
+/**
  * Approve a proposal: apply its diff to a working copy of global.json.
  * Returns the mutated index or null on failure.
  *
@@ -615,6 +646,9 @@ function approveProposal(id, globalJsonPath = defaultGlobalJson(), proposalsPath
   proposal.status = 'approved';
   proposal.approvedAt = new Date().toISOString();
   fs.writeFileSync(proposalsPath, proposals.map(p => JSON.stringify(p)).join('\n') + '\n', 'utf-8');
+
+  // Issue #40 — append-only provenance for the affected skills (best-effort)
+  recordProvenance(mutated, proposal);
 
   // Outcome read-back: record the decision in the audit trail (issue #34).
   try {
@@ -933,6 +967,7 @@ export {
   listProposals,
   applyMutation,
   evolve,
+  recordProvenance,
   defaultEvolveDir,
   defaultBaselinePath,
   defaultProposalsPath,
