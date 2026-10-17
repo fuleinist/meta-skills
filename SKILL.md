@@ -654,6 +654,59 @@ metadata:
 - Node.js engine constraints in package.json
 - EvoSkill version tagging for mutation lineage tracking (future v0.1.2 dependency)
 
+## Outcome read-back & retention (v0.2.5)
+
+**The problem:** proposals are generated from current quality scores only. Nothing reads history
+back, so a target a human rejected last week is proposed again — and `propose reject` deleted the
+proposal file outright, so one pipeline's memory was erased while the other kept it as `rejected`.
+
+**The fix:** every outcome is written to an append-only audit trail, and proposal generation
+consults that trail before it suggests anything. Rejection becomes a tombstone, not a deletion.
+
+### Audit trail
+
+`~/.meta-skills/evolve/skill-impact.jsonl` — one JSON object per line:
+
+```json
+{ "ts": "2026-01-02T09:11:04.000Z", "proposalId": "rewrite-vague-1", "type": "rewrite",
+  "skills": ["vague-skill"], "outcome": "rejected", "reason": "too broad" }
+```
+
+The log sits beside the proposal store it audits (`path.dirname` when the store is a file), so each
+store carries its own memory and tests run in temp dirs.
+
+### Read-back
+
+- **Never re-propose a rejected target+direction.** Key = `type|target` — skill id, or `a+b` for a
+  merge — built from rejected rows in the store plus rejected entries in the trail.
+- `suppressRejected(opportunities, rejectedKeys)` returns `{ kept, suppressed }`; only `kept` reaches
+  `generateProposals()`, and `evolve` prints `suppressed N previously-rejected candidate(s)`.
+- `evolve review` marks a pending proposal `[previously rejected]` when its key matches a prior
+  rejection, and lists rejected entries (id, date, reason) so the trail is readable.
+
+### CLI
+
+```bash
+# Reject = retained tombstone (patch kept + <id>.rejected.json sidecar)
+meta-skills propose reject <id> [--reason "text"]
+
+# Permanent delete — explicit and gated
+meta-skills propose reject <id> --purge --yes
+
+# Rejected tombstones are hidden by default; --all shows them marked [rejected <date>]
+meta-skills propose list --all
+
+# Read the audit trail
+meta-skills skill-impact list [--store <dir-or-file>] [--json]
+```
+
+### Design
+
+- **Rejection is memory, not amnesia** — purging files does not rewrite the trail
+- **`--purge` refuses without `--yes`** — destructive paths need an explicit confirmation
+- **Corrupt lines are skipped** — the trail must stay readable even if one write is damaged
+- **Zero new npm deps** — Node stdlib only (`src/skill-impact.mjs`)
+
 ## References
 
 - [Agent Skills Specification](https://agentskills.io/specification.md) - The SKILL.md standard

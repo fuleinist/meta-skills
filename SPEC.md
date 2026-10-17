@@ -262,3 +262,43 @@ These are NOT v1.8:
 - **User bundles persist separately** from auto-bundles (no clobber)
 - **Atomic write-back** (temp + rename) for all index mutations
 - **Backward compatible** — new commands only; no changes to existing CLI surface except `--version`
+
+## Outcome read-back & retention (issue #34)
+
+**The problem:** the pipeline writes proposals but never reads them back. `analyzeMutations()` /
+`generateProposals()` score the present only, so a target a human already rejected comes back on
+the next run. Worse, `propose reject` unlinked the proposal file while `evolve reject` kept it as
+`rejected` — two pipelines, two memories.
+
+**The fix:** every outcome is recorded, and proposal generation consults that record before it
+suggests anything.
+
+### Audit trail
+
+- **Location** — `<proposals dir>/skill-impact.jsonl`, derived with `path.dirname` when the store
+  is a file. The log lives next to the store it audits, so tests stay hermetic.
+- **Schema** — one JSON object per line:
+  `{ ts, proposalId, type, skills: [..], outcome: 'accepted'|'rejected', reason? }`
+  `ts` is filled in when missing; corrupt lines are skipped; a missing file reads as `[]`.
+- **Read-back key** — `type|target`, where target is a skill id or `a+b` for a merge — the same
+  shape the proposal constructor uses, so both pipelines agree.
+
+### Read-back rule
+
+- **Never re-propose a rejected target+direction.** `buildRejectedKeys()` merges rejected rows from
+  the proposals store with rejected entries from the trail; `suppressRejected(opportunities, keys)`
+  returns `{ kept, suppressed }` and only `kept` reaches `generateProposals()`.
+- **Counter line** — `evolve` prints `suppressed N previously-rejected candidate(s)` so the skip is
+  visible in the run output, not silent.
+- **Review output** — a pending proposal whose key matches a prior rejection is marked
+  `[previously rejected]`, and rejected entries stay listed (id, date, reason) as tombstones.
+
+### Retention semantics
+
+- **reject = tombstone.** The `.patch` file is retained; a `<id>.rejected.json` sidecar records
+  `{ rejectedAt, reason }`. Rejected proposals are hidden from `propose list` by default and shown
+  with `--all`, each marked `[rejected <date>]`.
+- **`--purge --yes` = delete.** Permanent removal is explicit and refuses without `--yes`
+  (`refusing to purge without --yes`). Purging does not rewrite the audit trail — the outcome stays.
+- **Explicit paths everywhere** — `impactLogPath(storeDirOrFile)`, `appendImpact(entry, logPath)`,
+  `readImpact(logPath)` all take the path, so nothing defaults to `~/.meta-skills` in tests.
