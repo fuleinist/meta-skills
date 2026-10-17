@@ -264,3 +264,326 @@ function appendLog(dir, entry) {
   atomicWrite(file, next);
   return { file, line };
 }
+
+// ── Signature extraction ─────────────────────────────────────────────────
+
+// Inline copy of the selfheal stopword set (kept here so this module stays
+// standalone — src/selfheal.mjs is not imported by issue #38).
+const STOPWORDS = new Set([
+  'the', 'and', 'for', 'with', 'that', 'this', 'was', 'were', 'are', 'is',
+  'from', 'have', 'has', 'had', 'not', 'but', 'you', 'your', 'our', 'its',
+  'can', 'could', 'should', 'would', 'will', 'shall', 'please', 'when',
+  'what', 'which', 'who', 'how', 'why', 'then', 'than', 'them', 'they',
+  'there', 'here', 'into', 'out', 'about', 'after', 'before', 'over',
+  'under', 'again', 'very', 'just', 'also', 'only', 'more', 'most', 'some',
+  'any', 'all', 'each', 'every', 'been', 'being', 'does', 'did', 'doing',
+  'want', 'need', 'make', 'made', 'using', 'use', 'used', 'like', 'get',
+  'got', 'let', 'say', 'said', 'see', 'saw', 'one', 'two', 'now', 'still',
+  'skill', 'failed', 'failure', 'error', 'meta', 'skills',
+]);
+
+/**
+ * Deterministic signature from an excerpt: tokenize → lowercase → strip
+ * stopwords/markdown → len>=3 → sort by (freq desc, alpha asc) → top <=6.
+ * @param {string} text
+ * @param {number} [max=SIGNATURE_MAX]
+ * @returns {string[]}
+ */
+function extractSignature(text, max = SIGNATURE_MAX) {
+  if (!text || typeof text !== 'string') return [];
+
+  const cleaned = text
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/`[^`]*`/g, ' ')
+    .replace(/[#*_>\-\[\](){}|]/g, ' ')
+    .toLowerCase();
+
+  const freq = new Map();
+  for (const raw of cleaned.split(/[^a-z0-9]+/)) {
+    const tok = raw.trim();
+    if (tok.length < 3 || STOPWORDS.has(tok) || /^\d+$/.test(tok)) continue;
+    freq.set(tok, (freq.get(tok) || 0) + 1);
+  }
+
+  return [...freq.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, max)
+    .map(([tok]) => tok);
+}
+
+/** Evidence bullet: `- <ts> <skill> [trace <id>] — <excerpt first 60 chars>` */
+function evidenceBullet(item) {
+  const ts = item.timestamp || 'unknown';
+  const skill = item.skill || 'unknown';
+  const trace = item.traceId ? ` [trace ${item.traceId}]` : '';
+  const excerpt = String(item.excerpt || '').replace(/\s+/g, ' ').trim().slice(0, EXCERPT_MAX) || '(no excerpt)';
+  return `- ${ts} ${skill}${trace} — ${excerpt}`;
+}
+
+// ── Grouping ─────────────────────────────────────────────────────────────
+
+/**
+ * Group evidence items by (skill, signature).
+ * @param {Array<object>} evidence
+ * @returns {Map<string, {skill: string, signature: string[], items: Array<object>}>}
+ */
+function groupEvidence(evidence) {
+  const groups = new Map();
+
+  for (const item of evidence) {
+    if (!item || typeof item !== 'object') continue;
+    const outcome = item.outcome === 'success' ? 'success' : 'failure';
+    const skill = item.skill || 'unknown';
+    const signature = extractSignature(item.excerpt);
+    const key = `${outcome}::${skill}::${signature.join('-') || 'unknown'}`;
+
+    if (!groups.has(key)) groups.set(key, { outcome, skill, signature, items: [] });
+    groups.get(key).items.push(item);
+  }
+
+  for (const group of groups.values()) {
+    group.items.sort((a, b) => String(a.timestamp || '').localeCompare(String(b.timestamp || '')));
+  }
+
+  return groups;
+}
+
+/**
+ * Turn one qualifying group into a pattern candidate.
+ * @param {{outcome: string, skill: string, signature: string[], items: Array<object>}} group
+ * @returns {object} pattern accepted by upsertPattern
+ */
+function buildPattern(group) {
+  const sigSlug = slugifyPatternName(group.signature.join('-') || 'unknown');
+  const skillSlug = slugifyPatternName(group.skill) || 'unknown';
+  const keywords = group.signature.length ? group.signature.join(', ') : '(no keywords)';
+  const evidence = group.items.map(evidenceBullet);
+
+  if (group.outcome === 'success') {
+    return {
+      name: `success-${skillSlug}-${sigSlug}`,
+      description: `Effective strategy for ${group.skill}`,
+      rootCause: `Observed consistent success: ${keywords}`,
+      evidence,
+      fix: `Reinforce this approach in ${group.skill} guidance.`,
+    };
+  }
+
+  return {
+    name: `failure-${skillSlug}-${sigSlug}`,
+    description: `Recurring failure pattern for ${group.skill}`,
+    rootCause: `≥${group.items.length} recorded failures share signature: ${keywords}; likely gap in guidance/triggers (see evidence)`,
+    evidence,
+    fix: `Review guidance for ${group.skill}: add anti-pattern notes or tighten triggers.`,
+  };
+}
+
+// ── Orchestrator ─────────────────────────────────────────────────────────
+
+/**
+ * Consolidate raw evidence into wiki pattern pages.
+ *
+ * Dry-run by default: everything is computed, nothing is written. Writes
+ * happen only when `opts.write === true` (CLI `--write`).
+ *
+ * @param {string} dir - wiki dir (defaultWikiDir() when omitted)
+ * @param {Array<{skill: string, outcome: 'failure'|'success', timestamp?: string, excerpt?: string, traceId?: string}>} evidence
+ * @param {object} [opts]
+ * @param {number} [opts.minEvidence=2] - minimum group size to become a pattern
+ * @param {boolean} [opts.write] - apply writes
+ * @param {boolean} [opts.dryRun] - force dry-run even with --write
+ * @returns {{dryRun: boolean, created: string[], updated: string[], evidenceCount: number, skippedBelowThreshold: number}}
+ */
+function consolidate(dir, evidence, opts = {}) {
+  const wikiDir = dir || defaultWikiDir();
+  const minEvidence = Number.isInteger(opts.minEvidence) && opts.minEvidence > 0 ? opts.minEvidence : 2;
+  const apply = opts.write === true && opts.dryRun !== true;
+  const dryRun = !apply;
+
+  const items = Array.isArray(evidence) ? evidence : [];
+  const groups = groupEvidence(items);
+
+  const created = [];
+  const updated = [];
+  let skippedBelowThreshold = 0;
+
+  for (const group of groups.values()) {
+    if (group.items.length < minEvidence) {
+      skippedBelowThreshold++;
+      continue;
+    }
+
+    const pattern = buildPattern(group);
+    const slug = slugifyPatternName(pattern.name);
+
+    if (dryRun) {
+      // Compute the outcome without touching disk.
+      (fs.existsSync(path.join(wikiDir, 'patterns', `${slug}.md`)) ? updated : created).push(pattern.name);
+      continue;
+    }
+
+    const res = upsertPattern(wikiDir, pattern);
+    (res.created ? created : updated).push(pattern.name);
+  }
+
+  created.sort();
+  updated.sort();
+
+  if (!dryRun) {
+    updateIndex(wikiDir);
+    appendLog(wikiDir, `consolidation: ${created.length} created, ${updated.length} updated ` +
+      `from ${items.length} evidence item(s), ${skippedBelowThreshold} group(s) below threshold ${minEvidence}`);
+  }
+
+  return { dryRun, created, updated, evidenceCount: items.length, skippedBelowThreshold };
+}
+
+// ── Evidence loading ─────────────────────────────────────────────────────
+
+/**
+ * Load evidence items from a `.jsonl` file or a directory of `.jsonl` files.
+ * Corrupt lines are skipped; total entries are capped at 500.
+ * @param {string} inputPath
+ * @param {{cap?: number}} [opts]
+ * @returns {Array<object>}
+ */
+function loadEvidence(inputPath, opts = {}) {
+  const cap = opts.cap ?? MAX_EVIDENCE_ENTRIES;
+  let files = [];
+  let baseDir = '';
+
+  try {
+    const stat = fs.statSync(inputPath);
+    if (stat.isDirectory()) {
+      baseDir = inputPath;
+      files = fs.readdirSync(inputPath).filter(f => f.endsWith('.jsonl')).sort();
+    } else {
+      baseDir = path.dirname(inputPath);
+      files = [path.basename(inputPath)];
+    }
+  } catch {
+    return [];
+  }
+
+  const items = [];
+  for (const file of files) {
+    let content;
+    try {
+      content = fs.readFileSync(path.join(baseDir, file), 'utf-8');
+    } catch {
+      continue;
+    }
+
+    for (const line of content.split('\n')) {
+      if (items.length >= cap) return items;
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      try {
+        const item = JSON.parse(trimmed);
+        if (item && typeof item === 'object' && !Array.isArray(item)) items.push(item);
+      } catch {
+        // skip corrupt lines
+      }
+    }
+  }
+
+  return items;
+}
+
+// ── CLI ──────────────────────────────────────────────────────────────────
+
+function parseArgs(argv) {
+  const options = {
+    input: null,
+    wikiDir: null,
+    minEvidence: 2,
+    write: false,
+    asJson: false,
+  };
+
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === '--input' && i + 1 < argv.length) options.input = path.resolve(argv[++i]);
+    else if (a === '--dir' && i + 1 < argv.length) options.wikiDir = path.resolve(argv[++i]);
+    else if (a === '--min-evidence' && i + 1 < argv.length) options.minEvidence = parseInt(argv[++i], 10) || 2;
+    else if (a === '--write') options.write = true;
+    else if (a === '--json') options.asJson = true;
+  }
+
+  return options;
+}
+
+async function cmdConsolidate(argv) {
+  const options = parseArgs(argv);
+  if (!options.input) throw new Error('consolidate: --input <file|dir> required');
+
+  const wikiDir = options.wikiDir || defaultWikiDir();
+  const evidence = loadEvidence(options.input);
+  const result = consolidate(wikiDir, evidence, { minEvidence: options.minEvidence, write: options.write });
+
+  if (options.asJson) {
+    console.log(JSON.stringify(result, null, 2));
+    return result;
+  }
+
+  console.log(`Consolidation ${result.dryRun ? '(dry-run — nothing written)' : '(applied)'}`);
+  console.log(`  wiki: ${wikiDir}`);
+  console.log(`  evidence: ${result.evidenceCount} item(s), ${result.skippedBelowThreshold} group(s) below threshold`);
+
+  if (result.created.length) {
+    console.log(`  created (${result.created.length}):`);
+    for (const name of result.created) console.log(`    + ${name}`);
+  }
+  if (result.updated.length) {
+    console.log(`  updated (${result.updated.length}):`);
+    for (const name of result.updated) console.log(`    ~ ${name}`);
+  }
+  if (!result.created.length && !result.updated.length) {
+    console.log('  No pattern reached the evidence threshold — nothing to write.');
+  }
+  if (result.dryRun) {
+    console.log('\n  Re-run with --write to apply.');
+  }
+
+  return result;
+}
+
+// ── Standalone entry ─────────────────────────────────────────────────────
+
+async function main() {
+  const args = process.argv.slice(2);
+  if (args.length === 0) {
+    console.log(`Usage:
+  meta-skills consolidate --input <file|dir> [--dir <wikiDir>] [--min-evidence N] [--write] [--json]`);
+    process.exit(0);
+  }
+
+  try {
+    await cmdConsolidate(args);
+  } catch (e) {
+    console.error(`✗ ${e.message}`);
+    process.exit(1);
+  }
+}
+
+const isMain = process.argv[1] && (
+  process.argv[1] === fileURLToPath(import.meta.url)
+  || process.argv[1].endsWith('consolidate.mjs')
+);
+if (isMain) main();
+
+export {
+  defaultWikiDir,
+  slugifyPatternName,
+  renderPattern,
+  upsertPattern,
+  updateIndex,
+  appendLog,
+  extractSignature,
+  evidenceBullet,
+  groupEvidence,
+  buildPattern,
+  consolidate,
+  loadEvidence,
+  cmdConsolidate,
+};
