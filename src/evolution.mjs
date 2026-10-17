@@ -20,6 +20,7 @@ import { fileURLToPath } from 'node:url';
 import { scoreAll } from './quality-scorer.mjs';
 import { takeSnapshot } from './rollback-ledger.mjs';
 import { checkGateForSkill, defaultValidationDir } from './validation-harness.mjs';
+import { impactLogPath, impactKey, appendImpact, readImpact } from './skill-impact.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -478,13 +479,58 @@ function readProposals(proposalsPath = defaultProposalsPath()) {
 }
 
 /**
+ * Rejected keys from both memory sources (issue #34):
+ *   (a) proposals stored with status === 'rejected'
+ *   (b) impact-log entries with outcome === 'rejected'
+ * Key = `${type}|${target}` — skill id, or `a+b` for a merge.
+ * @param {string} [proposalsPath]
+ * @returns {Set<string>}
+ */
+function buildRejectedKeys(proposalsPath = defaultProposalsPath()) {
+  const keys = new Set();
+
+  for (const p of readProposals(proposalsPath)) {
+    if (p.status === 'rejected') keys.add(impactKey(p.type, p.skillIds));
+  }
+  for (const e of readImpact(impactLogPath(proposalsPath))) {
+    if (e.outcome === 'rejected') keys.add(impactKey(e.type, e.skills));
+  }
+
+  return keys;
+}
+
+/**
+ * Drop opportunities whose type+target was rejected before.
+ * Opportunity key = `${opp.type}|${opp.id}`.
+ * @param {Array} opportunities — from analyzeMutations
+ * @param {Set<string>} rejectedKeys — from buildRejectedKeys
+ * @returns {{ kept: Array, suppressed: Array }}
+ */
+function suppressRejected(opportunities, rejectedKeys) {
+  const kept = [];
+  const suppressed = [];
+
+  for (const opp of opportunities || []) {
+    if (rejectedKeys.has(impactKey(opp.type, opp.id))) suppressed.push(opp);
+    else kept.push(opp);
+  }
+
+  return { kept, suppressed };
+}
+
+/**
  * List pending proposals with human-readable output.
+ * Pending proposals that match a prior rejection are marked
+ * `[previously rejected]`; rejected proposals stay visible as tombstones so
+ * the audit trail is readable.
  */
 function listProposals(proposalsPath = defaultProposalsPath()) {
   const proposals = readProposals(proposalsPath);
+  const rejectedKeys = buildRejectedKeys(proposalsPath);
   const pending = proposals.filter(p => p.status === 'pending');
+  const rejected = proposals.filter(p => p.status === 'rejected');
 
-  if (pending.length === 0) {
+  if (pending.length === 0 && rejected.length === 0) {
     console.log('No pending proposals.');
     return [];
   }
@@ -495,12 +541,24 @@ function listProposals(proposalsPath = defaultProposalsPath()) {
     const deltaStr = delta
       ? `  Score: ${p.beforeScore} → ${p.afterScore} (+${delta.overall})`
       : '';
-    console.log(`  ${p.id}`);
-    console.log(`    Type: ${p.type}  |  Skill(s): ${p.skillIds.join(', ')}`);
+    const marker = rejectedKeys.has(impactKey(p.type, p.skillIds)) ? ' [previously rejected]' : '';
+    console.log(`  ${p.id}${marker}`);
+    console.log(`    Type: ${p.type}  |  Skill(s): ${(p.skillIds || []).join(', ')}`);
     console.log(`    ${p.reason}`);
     console.log(deltaStr);
     console.log(`    Confidence: ${Math.round(p.confidence * 100)}%`);
     console.log();
+  }
+
+  if (rejected.length > 0) {
+    console.log(`Rejected proposals (${rejected.length}) — retained as tombstones:\n`);
+    for (const p of rejected) {
+      const date = String(p.rejectedAt || p.generated || '').slice(0, 16).replace('T', ' ') || '(unknown)';
+      console.log(`  ${p.id}`);
+      console.log(`    Type: ${p.type}  |  Skill(s): ${(p.skillIds || []).join(', ')}  |  Rejected: ${date}`);
+      console.log(`    ${p.rejectReason || p.reason || '(no reason recorded)'}`);
+      console.log();
+    }
   }
 
   return pending;
@@ -558,24 +616,41 @@ function approveProposal(id, globalJsonPath = defaultGlobalJson(), proposalsPath
   proposal.approvedAt = new Date().toISOString();
   fs.writeFileSync(proposalsPath, proposals.map(p => JSON.stringify(p)).join('\n') + '\n', 'utf-8');
 
+  // Outcome read-back: record the decision in the audit trail (issue #34).
+  try {
+    appendImpact(
+      { proposalId: id, type: proposal.type, skills: proposal.skillIds || [], outcome: 'accepted' },
+      impactLogPath(proposalsPath),
+    );
+  } catch { /* audit trail is best-effort */ }
+
   console.log(`✓ Approved and applied: ${id}`);
   console.log(`  Mutated index written to ${globalJsonPath}`);
   return mutated;
 }
 
 /**
- * Reject a proposal: mark it as rejected.
+ * Reject a proposal: mark it as rejected (retained as a tombstone) and
+ * record the outcome in the audit trail. The proposal is never deleted —
+ * rejection is memory, not amnesia (issue #34).
  */
-function rejectProposal(id, proposalsPath = defaultProposalsPath()) {
+function rejectProposal(id, proposalsPath = defaultProposalsPath(), reason = null) {
   const proposals = readProposals(proposalsPath);
   const proposal = proposals.find(p => p.id === id);
   if (!proposal) throw new Error(`Proposal not found: ${id}`);
 
   proposal.status = 'rejected';
   proposal.rejectedAt = new Date().toISOString();
+  if (reason) proposal.rejectReason = reason;
   fs.writeFileSync(proposalsPath, proposals.map(p => JSON.stringify(p)).join('\n') + '\n', 'utf-8');
 
+  appendImpact(
+    { proposalId: id, type: proposal.type, skills: proposal.skillIds || [], outcome: 'rejected', reason },
+    impactLogPath(proposalsPath),
+  );
+
   console.log(`✗ Rejected: ${id}`);
+  if (reason) console.log(`  reason: ${reason}`);
 }
 
 // ── Mutation application ────────────────────────────────────────────────────
@@ -671,13 +746,14 @@ function incrementVersion(version) {
 // ── Full evolution pipeline ─────────────────────────────────────────────────
 
 /**
- * Run the full evolution pipeline: baseline → analyze → propose → filter → review.
+ * Run the full evolution pipeline: baseline → analyze → read-back → propose → filter → review.
  *
  * @param {object} options
  * @param {string} [options.globalJson]
  * @param {boolean} [options.dryRun]
  * @param {boolean} [options.noBaseline] — skip baseline, use existing
- * @returns {{ baseline, opportunities, proposals, kept, discarded }}
+ * @param {string} [options.proposalsPath] — proposal store; its audit trail sits beside it
+ * @returns {{ baseline, opportunities, candidates, suppressed, proposals, kept, discarded }}
  */
 async function evolve(options = {}) {
   const globalJsonPath = options.globalJson || defaultGlobalJson();
@@ -714,9 +790,19 @@ async function evolve(options = {}) {
     console.log(`    ${opp.type}: ${opp.id} — ${opp.reason.slice(0, 80)}`);
   }
 
+  // Step 2b: Read-back — never re-propose a target+direction already rejected
+  const rejectedKeys = buildRejectedKeys(proposalsPath);
+  const { kept: candidates, suppressed } = suppressRejected(opportunities, rejectedKeys);
+  if (suppressed.length > 0) {
+    console.log(`  suppressed ${suppressed.length} previously-rejected candidate(s)`);
+    for (const s of suppressed.slice(0, 5)) {
+      console.log(`    ⊘ ${s.type}: ${s.id} — already rejected, skipped`);
+    }
+  }
+
   // Step 3: Generate proposals
   console.log('\n── Step 3: Generating proposals ──');
-  const proposals = generateProposals(index, baseline, opportunities);
+  const proposals = generateProposals(index, baseline, candidates);
   console.log(`  Generated ${proposals.length} proposal(s)`);
 
   // Step 4: Pareto filter
@@ -740,6 +826,8 @@ async function evolve(options = {}) {
   return {
     baseline,
     opportunities,
+    candidates,
+    suppressed,
     proposals,
     kept,
     discarded,
@@ -757,15 +845,18 @@ function main() {
 Usage:
   meta-skills evolve baseline              Run baseline quality measurement
   meta-skills evolve propose [--dry-run]   Generate mutation proposals
-  meta-skills evolve review                List pending proposals
+  meta-skills evolve review                List pending proposals + prior rejections
   meta-skills evolve approve <id>          Apply an approved proposal
-  meta-skills evolve reject <id>           Discard a proposal
+  meta-skills evolve reject <id> [--reason "text"]
+                                          Reject a proposal — retained as a tombstone
   meta-skills evolve --all                 Full pipeline: baseline → propose → review
 
 Options:
-  --global-json <path>   Custom global.json path
-  --dry-run              Preview changes without writing
-  --all                  Run the full evolution pipeline`);
+  --global-json <path>     Custom global.json path
+  --proposals-path <path>  Custom proposals.jsonl (audit trail sits beside it)
+  --reason <text>          Why the proposal was rejected (recorded in the audit trail)
+  --dry-run                Preview changes without writing
+  --all                    Run the full evolution pipeline`);
     process.exit(0);
   }
 
@@ -775,6 +866,10 @@ Options:
     globalJson: args.includes('--global-json')
       ? args[args.indexOf('--global-json') + 1]
       : defaultGlobalJson(),
+    proposalsPath: args.includes('--proposals-path')
+      ? args[args.indexOf('--proposals-path') + 1]
+      : defaultProposalsPath(),
+    reason: args.includes('--reason') ? args[args.indexOf('--reason') + 1] : null,
     dryRun: args.includes('--dry-run'),
     force: args.includes('--force'),
   };
@@ -787,18 +882,18 @@ Options:
       evolve({ ...opts, noBaseline: true });
       break;
     case 'review':
-      listProposals();
+      listProposals(opts.proposalsPath);
       break;
     case 'approve': {
       const id = args[1];
       if (!id) { console.error('Usage: meta-skills evolve approve <id>'); process.exit(1); }
-      approveProposal(id, opts.globalJson, defaultProposalsPath(), { force: opts.force });
+      approveProposal(id, opts.globalJson, opts.proposalsPath, { force: opts.force });
       break;
     }
     case 'reject': {
       const id = args[1];
-      if (!id) { console.error('Usage: meta-skills evolve reject <id>'); process.exit(1); }
-      rejectProposal(id, opts.globalJson);
+      if (!id) { console.error('Usage: meta-skills evolve reject <id> [--reason "text"]'); process.exit(1); }
+      rejectProposal(id, opts.proposalsPath, opts.reason);
       break;
     }
     case '--all':
@@ -822,6 +917,8 @@ export {
   analyzeMutations,
   generateProposals,
   paretoFilter,
+  buildRejectedKeys,
+  suppressRejected,
   approveProposal,
   rejectProposal,
   readProposals,

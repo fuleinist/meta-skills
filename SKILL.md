@@ -717,9 +717,115 @@ a baseline both exist for the target skill; otherwise it is a silent no-op.
 - Stdlib only — zero new npm deps
 - Tests run in temp dirs (`fs.mkdtempSync`), never the real home (20 tests)
 
+## Outcome read-back & retention (v0.2.5)
+
+**The problem:** proposals are generated from current quality scores only. Nothing reads history
+back, so a target a human rejected last week is proposed again — and `propose reject` deleted the
+proposal file outright, so one pipeline's memory was erased while the other kept it as `rejected`.
+
+**The fix:** every outcome is written to an append-only audit trail, and proposal generation
+consults that trail before it suggests anything. Rejection becomes a tombstone, not a deletion.
+
+### Audit trail
+
+`~/.meta-skills/evolve/skill-impact.jsonl` — one JSON object per line:
+
+```json
+{ "ts": "2026-01-02T09:11:04.000Z", "proposalId": "rewrite-vague-1", "type": "rewrite",
+  "skills": ["vague-skill"], "outcome": "rejected", "reason": "too broad" }
+```
+
+The log sits beside the proposal store it audits (`path.dirname` when the store is a file), so each
+store carries its own memory and tests run in temp dirs.
+
+### Read-back
+
+- **Never re-propose a rejected target+direction.** Key = `type|target` — skill id, or `a+b` for a
+  merge — built from rejected rows in the store plus rejected entries in the trail.
+- `suppressRejected(opportunities, rejectedKeys)` returns `{ kept, suppressed }`; only `kept` reaches
+  `generateProposals()`, and `evolve` prints `suppressed N previously-rejected candidate(s)`.
+- `evolve review` marks a pending proposal `[previously rejected]` when its key matches a prior
+  rejection, and lists rejected entries (id, date, reason) so the trail is readable.
+
+### CLI
+
+```bash
+# Reject = retained tombstone (patch kept + <id>.rejected.json sidecar)
+meta-skills propose reject <id> [--reason "text"]
+
+# Permanent delete — explicit and gated
+meta-skills propose reject <id> --purge --yes
+
+# Rejected tombstones are hidden by default; --all shows them marked [rejected <date>]
+meta-skills propose list --all
+
+# Read the audit trail
+meta-skills skill-impact list [--store <dir-or-file>] [--json]
+```
+
+### Design
+
+- **Rejection is memory, not amnesia** — purging files does not rewrite the trail
+- **`--purge` refuses without `--yes`** — destructive paths need an explicit confirmation
+- **Corrupt lines are skipped** — the trail must stay readable even if one write is damaged
+- **Zero new npm deps** — Node stdlib only (`src/skill-impact.mjs`)
+
 ## References
 
 - [Agent Skills Specification](https://agentskills.io/specification.md) - The SKILL.md standard
 - [Skill Discovery Pattern](https://agents.kour.me/skill-discovery/) - Progressive disclosure for agent capabilities
 - [Library Meta-Skill](https://claudefa.st/blog/guide/mechanics/library-meta-skill) - Centralized skill distribution
 - [EvoSkill: Automated Skill Discovery](https://arxiv.org/html/2603.02766v1) - Self-evolving skill frameworks
+
+## Wiki Layer (issue #33)
+
+A persistent knowledge layer under `~/.meta-skills/wiki/`. Events say what
+happened; the wiki says what was learned. It compounds across sessions and is
+kept separate from raw usage events and the skill index.
+
+### Structure
+
+```
+~/.meta-skills/wiki/
+  index.md         # one entry per pattern: PROBLEM + ROOT CAUSE + FIX
+  logs.md          # append-only timestamped activity log
+  skill-impact.md  # machine-written lines: which skill changed, and why
+  patterns/        # one page per pattern, ~10-30 lines
+```
+
+### Rules
+
+- Index entries are 1-2 sentences: **PROBLEM + ROOT CAUSE + FIX**.
+- Pattern pages are ~10-30 lines: root cause, the exact observed sequence, the
+  concrete fix. No filler, no restating the obvious.
+- Capture **success** patterns as well as failures — a fix that held is a
+  pattern, not just the absence of a bug.
+- Update an existing pattern instead of duplicating it. `createPattern` throws
+  on an existing slug; `updatePattern` throws on a missing one.
+- The wiki is **never rolled back** — skills are. The rollback ledger restores
+  `global.json`; knowledge is append/update-only.
+- Pattern names are slugs: lowercase `[a-z0-9-]`, `.md` optional and normalized.
+
+### CLI
+
+```bash
+# Create the structure (safe to call repeatedly)
+node src/wiki.mjs init
+
+# Inspect it
+node src/wiki.mjs status
+node src/wiki.mjs status --json
+
+# Custom location (used by tests and by non-default installs)
+node src/wiki.mjs init --wiki-dir /tmp/wiki
+```
+
+### Design
+
+- **Zero new dependencies** — `node:fs`, `node:path`, `node:os` only
+- **Atomic writes** — temp + rename for every file, so a crash never leaves a
+  half-written pattern
+- **Idempotent setup** — `ensureWiki()` creates what is missing and never
+  clobbers existing content
+- **Greppable impact log** — `- <ISO ts> | skill=<id> | change=<text> | pattern=<slug>`
+- **22 tests** in `src/wiki.test.mjs`, all inside a temp directory

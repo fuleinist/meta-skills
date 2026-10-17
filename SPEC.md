@@ -335,3 +335,99 @@ silent no-op and behaves exactly as before. `--force` overrides the refusal.
 - **Zero new npm deps** — Node stdlib only
 - **Atomic writes** — temp + rename for every baseline file
 - **Tests use temp dirs only** (`fs.mkdtempSync`) — never touch the real home
+
+## Outcome read-back & retention (issue #34)
+
+**The problem:** the pipeline writes proposals but never reads them back. `analyzeMutations()` /
+`generateProposals()` score the present only, so a target a human already rejected comes back on
+the next run. Worse, `propose reject` unlinked the proposal file while `evolve reject` kept it as
+`rejected` — two pipelines, two memories.
+
+**The fix:** every outcome is recorded, and proposal generation consults that record before it
+suggests anything.
+
+### Audit trail
+
+- **Location** — `<proposals dir>/skill-impact.jsonl`, derived with `path.dirname` when the store
+  is a file. The log lives next to the store it audits, so tests stay hermetic.
+- **Schema** — one JSON object per line:
+  `{ ts, proposalId, type, skills: [..], outcome: 'accepted'|'rejected', reason? }`
+  `ts` is filled in when missing; corrupt lines are skipped; a missing file reads as `[]`.
+- **Read-back key** — `type|target`, where target is a skill id or `a+b` for a merge — the same
+  shape the proposal constructor uses, so both pipelines agree.
+
+### Read-back rule
+
+- **Never re-propose a rejected target+direction.** `buildRejectedKeys()` merges rejected rows from
+  the proposals store with rejected entries from the trail; `suppressRejected(opportunities, keys)`
+  returns `{ kept, suppressed }` and only `kept` reaches `generateProposals()`.
+- **Counter line** — `evolve` prints `suppressed N previously-rejected candidate(s)` so the skip is
+  visible in the run output, not silent.
+- **Review output** — a pending proposal whose key matches a prior rejection is marked
+  `[previously rejected]`, and rejected entries stay listed (id, date, reason) as tombstones.
+
+### Retention semantics
+
+- **reject = tombstone.** The `.patch` file is retained; a `<id>.rejected.json` sidecar records
+  `{ rejectedAt, reason }`. Rejected proposals are hidden from `propose list` by default and shown
+  with `--all`, each marked `[rejected <date>]`.
+- **`--purge --yes` = delete.** Permanent removal is explicit and refuses without `--yes`
+  (`refusing to purge without --yes`). Purging does not rewrite the audit trail — the outcome stays.
+- **Explicit paths everywhere** — `impactLogPath(storeDirOrFile)`, `appendImpact(entry, logPath)`,
+  `readImpact(logPath)` all take the path, so nothing defaults to `~/.meta-skills` in tests.
+
+## Wiki Layer (issue #33)
+
+### Problem
+
+Usage events record what happened (`logs/*.jsonl`) and the index records what
+skills exist (`global.json`). Neither records what was learned: the root cause
+behind a failure and the fix that held. Without that layer the same problem is
+rediscovered every session.
+
+### Solution
+
+`src/wiki.mjs` — a persistent, compounding knowledge layer under the
+meta-skills home directory, kept separate from raw usage events and the index:
+
+```
+~/.meta-skills/wiki/
+  index.md         # one entry per pattern: PROBLEM + ROOT CAUSE + FIX
+  logs.md          # append-only timestamped activity log
+  skill-impact.md  # machine-written lines: which skill changed, and why
+  patterns/        # one page per pattern, ~10-30 lines
+```
+
+Skill updates build on this layer: a mutation is justified by a pattern page,
+and the mutation itself is written back to `skill-impact.md`.
+
+### Rules
+
+- Index entries are 1-2 sentences in PROBLEM + ROOT CAUSE + FIX form.
+- Pattern pages are ~10-30 lines: root cause, the exact observed sequence, and
+  the concrete fix.
+- Capture success patterns as well as failure patterns — knowing what works is
+  as valuable as knowing what broke.
+- Update an existing pattern instead of duplicating it; `createPattern` throws
+  when the slug already exists.
+- The wiki is never rolled back — skills are. `rollback-ledger.mjs` restores
+  `global.json` only; the wiki is append/update-only.
+- Pattern names are slugs: lowercase `[a-z0-9-]`, `.md` optional and normalized.
+
+### API
+
+- `defaultWikiDir()`, `ensureWiki(dir)` — idempotent structure creation
+- `readWikiIndex(dir)`, `readWiki(dir)`, `updateIndex(dir, content)`
+- `appendLog(dir, text)`, `recordSkillImpact(dir, entry)`
+- `createPattern(dir, name, content)`, `readPattern(dir, name)`,
+  `updatePattern(dir, name, content)`, `listPatterns(dir)`
+- CLI: `node src/wiki.mjs init|status [--wiki-dir <path>] [--json]`
+
+### Constraints
+
+- Zero new npm deps (`node:fs`, `node:path`, `node:os`)
+- Atomic writes via temp + rename; no `.tmp` files left behind
+- 22 tests in `src/wiki.test.mjs`, every one inside
+  `fs.mkdtempSync(path.join(os.tmpdir(), 'wiki-'))` — the real home directory
+  is never touched
+- No network, no external API calls
