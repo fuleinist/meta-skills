@@ -102,6 +102,12 @@ function toolTelemetrySummary(index) {
   };
 }
 
+// Read-only view of the issue #36 iteration records (lazy import, no cycle).
+async function toolIterationSummary(args = {}) {
+  const { readIterations, summarizeIterations, defaultIterationsPath } = await import('./evolution-loop.mjs');
+  return summarizeIterations(readIterations(args.iterationsPath || defaultIterationsPath()));
+}
+
 function paramError(msg) {
   const e = new Error(msg);
   e.code = -32602;
@@ -147,6 +153,14 @@ export const TOOLS = [
     description: 'Aggregate telemetry: total uses, skills used in last 7 days, never-used, deprecated counts.',
     inputSchema: { type: 'object', properties: {} },
   },
+  {
+    name: 'iteration_summary',
+    description: 'Read-only evolution-loop summary (issue #36) from iterations.jsonl.',
+    inputSchema: {
+      type: 'object',
+      properties: { iterationsPath: { type: 'string', description: 'Optional iterations.jsonl path' } },
+    },
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -184,6 +198,7 @@ export function handleRequest(req, index) {
           case 'skills_top_used': return toolSkillsTopUsed(index, args);
           case 'skill_quality_report': return await toolSkillQualityReport(index, args);
           case 'telemetry_summary': return toolTelemetrySummary(index);
+          case 'iteration_summary': return await toolIterationSummary(args);
           default: throw paramError(`unknown tool: ${name}`);
         }
       };

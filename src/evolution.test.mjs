@@ -17,6 +17,8 @@ import {
   analyzeMutations,
   generateProposals,
   paretoFilter,
+  buildRejectedKeys,
+  suppressRejected,
   approveProposal,
   rejectProposal,
   readProposals,
@@ -31,6 +33,7 @@ import {
   defaultProposalsPath,
 } from './evolution.mjs';
 import { takeSnapshot } from './rollback-ledger.mjs';
+import { impactLogPath, readImpact, appendImpact } from './skill-impact.mjs';
 
 const tests = [];
 function test(name, fn) { tests.push({ name, fn }); }
@@ -767,6 +770,150 @@ try {
       const skill = mutated.skills.find(s => s.id === 'v');
       assert.equal(skill.version, '1.2.4', `version incremented: ${skill.version}`);
       console.log('  ✓ version increments correctly');
+    } finally {
+      cleanup(dir);
+    }
+  }
+
+  // ── Read-back: rejected keys + suppression (issue #34) ────────────────────
+  console.log('\nread-back (rejected keys from store):');
+  {
+    const dir = tmpDir();
+    try {
+      const pp = path.join(dir, 'proposals.jsonl');
+      fs.writeFileSync(pp, JSON.stringify({
+        id: 'rewrite-vague-1', type: 'rewrite', skillIds: ['vague-skill'],
+        status: 'rejected', rejectedAt: new Date().toISOString(),
+      }) + '\n', 'utf-8');
+
+      const keys = buildRejectedKeys(pp);
+      assert.ok(keys.has('rewrite|vague-skill'), 'rejected proposal contributes its key');
+
+      const opportunities = [
+        { type: 'rewrite', id: 'vague-skill', reason: 'low score' },
+        { type: 'split', id: 'other-skill', reason: 'vague trigger' },
+        { type: 'merge', id: 'a+b', reason: 'overlap' },
+      ];
+      const { kept, suppressed } = suppressRejected(opportunities, keys);
+      assert.equal(suppressed.length, 1, 'one candidate suppressed');
+      assert.equal(suppressed[0].id, 'vague-skill', 'suppressed the rejected target+direction');
+      assert.equal(kept.length, 2, 'kept candidates unaffected');
+      console.log('  ✓ rejected proposal suppresses its target+direction');
+    } finally {
+      cleanup(dir);
+    }
+  }
+
+  console.log('\nread-back (rejected keys from impact log):');
+  {
+    const dir = tmpDir();
+    try {
+      const pp = path.join(dir, 'proposals.jsonl');
+      const logPath = impactLogPath(pp);
+      assert.ok(logPath === path.join(dir, 'skill-impact.jsonl'), 'log sits beside the store');
+
+      // Store has no rejected rows — memory lives only in the audit trail.
+      fs.writeFileSync(pp, JSON.stringify({ id: 'p-1', type: 'merge', skillIds: ['a', 'b'], status: 'pending' }) + '\n', 'utf-8');
+      readImpact(logPath); // sanity: empty before append
+
+      appendImpact({ proposalId: 'merge-a+b-1', type: 'merge', skills: ['a', 'b'], outcome: 'rejected', reason: 'too broad' }, logPath);
+
+      const keys = buildRejectedKeys(pp);
+      assert.ok(keys.has('merge|a+b'), 'impact-log rejection contributes its key');
+
+      const { kept, suppressed } = suppressRejected([{ type: 'merge', id: 'a+b', reason: 'overlap' }], keys);
+      assert.equal(suppressed.length, 1, 'merge suppressed from the audit trail alone');
+      assert.equal(kept.length, 0, 'nothing kept');
+      console.log('  ✓ audit-trail rejection suppresses without a stored proposal row');
+    } finally {
+      cleanup(dir);
+    }
+  }
+
+  console.log('\nread-back in evolve():');
+  {
+    const dir = tmpDir();
+    try {
+      const gjPath = path.join(dir, 'global.json');
+      const blPath = path.join(dir, 'baseline.json');
+      const pp = path.join(dir, 'proposals.jsonl');
+
+      writeFile(path.join(dir, 'vague.md'), 'when: general use various stuff\n\n# Vague\n\nNothing here.\n');
+      const index = makeIndex({
+        skills: [makeSkill('vague-skill', {
+          when: 'general use various stuff',
+          path: path.join(dir, 'vague.md'),
+          priority: 'low',
+        })],
+      });
+      writeFile(gjPath, JSON.stringify(index, null, 2));
+
+      const baseline = runBaseline(gjPath, blPath);
+      const opps = analyzeMutations(index, baseline);
+      assert.ok(opps.length > 0, 'opportunity found before suppression');
+
+      // Pre-reject that exact target+direction.
+      const opp = opps[0];
+      fs.writeFileSync(pp, JSON.stringify({
+        id: 'pre-rejected', type: opp.type, skillIds: [opp.id], status: 'rejected',
+        rejectedAt: new Date().toISOString(),
+      }) + '\n', 'utf-8');
+
+      const result = await evolve({ globalJson: gjPath, dryRun: true, baselinePath: blPath, proposalsPath: pp });
+      assert.ok(result.suppressed.length >= 1, 'evolve reports suppressed candidates');
+      assert.equal(result.proposals.length, 0, 'no proposal regenerated for a rejected key');
+      console.log(`  ✓ evolve suppressed ${result.suppressed.length} candidate(s), regenerated 0 proposals`);
+    } finally {
+      cleanup(dir);
+    }
+  }
+
+  console.log('\nimpact appended on approve/reject:');
+  {
+    const dir = tmpDir();
+    try {
+      const gjPath = path.join(dir, 'global.json');
+      const pp = path.join(dir, 'proposals.jsonl');
+      const logPath = impactLogPath(pp);
+
+      writeFile(path.join(dir, 'skill.md'), '# Test\n');
+      const index = makeIndex({ skills: [makeSkill('test-skill', { path: path.join(dir, 'skill.md') })] });
+      writeFile(gjPath, JSON.stringify(index, null, 2));
+
+      fs.writeFileSync(pp, JSON.stringify({
+        id: 'ap-1', type: 'rewrite', skillIds: ['test-skill'], status: 'pending',
+      }) + '\n', 'utf-8');
+
+      approveProposal('ap-1', gjPath, pp);
+      const accepted = readImpact(logPath).filter(e => e.outcome === 'accepted');
+      assert.equal(accepted.length, 1, 'accept recorded in audit trail');
+      assert.equal(accepted[0].proposalId, 'ap-1', 'accept entry references the proposal');
+      assert.equal(accepted[0].skills.join(','), 'test-skill', 'accept entry lists the skills');
+
+      rejectProposal('ap-1', pp, 'too broad for this repo');
+      const rejected = readImpact(logPath).filter(e => e.outcome === 'rejected');
+      assert.equal(rejected.length, 1, 'reject recorded in audit trail');
+      assert.equal(rejected[0].reason, 'too broad for this repo', 'reject reason recorded');
+      console.log('  ✓ both outcomes land in the audit trail');
+
+      // Tombstone stays in the store and a fresh pending proposal for the same
+      // target+direction is marked as previously rejected.
+      const stored = readProposals(pp);
+      assert.ok(stored.find(p => p.id === 'ap-1').status === 'rejected', 'rejected proposal retained');
+
+      fs.appendFileSync(pp, JSON.stringify({
+        id: 'ap-2', type: 'rewrite', skillIds: ['test-skill'], status: 'pending',
+        confidence: 0.5, reason: 'regenerated after rejection',
+      }) + '\n', 'utf-8');
+
+      const lines = [];
+      const origLog = console.log;
+      console.log = (s) => lines.push(String(s));
+      listProposals(pp);
+      console.log = origLog;
+      assert.ok(lines.some(l => l.includes('[previously rejected]')), 'pending line marked as previously rejected');
+      assert.ok(lines.some(l => l.includes('too broad for this repo')), 'rejected entry shows its reason');
+      console.log('  ✓ review surfaces prior rejections');
     } finally {
       cleanup(dir);
     }

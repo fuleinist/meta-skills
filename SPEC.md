@@ -263,6 +263,470 @@ These are NOT v1.8:
 - **Atomic write-back** (temp + rename) for all index mutations
 - **Backward compatible** — new commands only; no changes to existing CLI surface except `--version`
 
+## Validation Harness (issue #35)
+
+### Problem
+
+Quality is estimated heuristically (v1.6 `quality-scorer`) and micro-tests exist
+per failed prompt (v0.2.0 `selfheal`), but there is no runner that evaluates a
+SKILL.md against a curated suite of held-out cases, and no rule that forbids a
+neutral change. `selfheal validate` is a Pareto non-regression gate — equal
+scores are accepted, so churn slips through.
+
+### Solution
+
+`src/validation-harness.mjs` — small, deterministic, offline, stdlib-only:
+
+- loads a validation suite (curated held-out cases per skill)
+- scores a given SKILL.md against the suite (reuses `selfheal` scoring via import)
+- persists baselines and compares candidate vs baseline
+- exposes a STRICT gate: accept only when the candidate aggregate **strictly
+  exceeds** the baseline. Equal ⇒ reject ("no improvement"); lower ⇒ reject
+  ("regression"). `force` is the only escape hatch.
+
+### Files
+
+- `~/.meta-skills/validation/suites/<skill-id>.json` — the held-out suite
+- `~/.meta-skills/validation/baselines/<skill-id>.json` — `{ skill, aggregate, cases, ts }`, atomic write (temp + rename)
+
+### Suite format
+
+```json
+{
+  "skill": "deploy-app",
+  "cases": [
+    { "id": "c1", "prompt": "Deploy rollback to production",
+      "keywords": ["deploy", "production"],
+      "mustNotContain": ["freeze window"],
+      "minScore": 50, "weight": 1 }
+  ]
+}
+```
+
+Shape is validated on load; malformed input throws with the offending path
+(`cases[0].minScore must be a number in 0-100`).
+
+### Scoring model
+
+Per case, 0–100, deterministic: 60 pts keyword coverage + 20 pts structural
+guidance (numbered steps / checklist) + 20 pts caution guidance, inherited from
+`scoreSkillAgainstCase`. Any `mustNotContain` hit zeroes the case outright.
+Aggregate = weighted mean of case scores; per-case pass = `score >= (minScore ?? 50)`.
+
+### CLI
+
+```bash
+# Compare a SKILL.md against the suite + baseline (exits 1 when the gate rejects)
+node src/validation-harness.mjs run ~/.meta-skills/validation/suites/deploy-app.json \
+  --skill skills/deploy-app/SKILL.md [--json]
+
+# Show the baseline, or record it (--update required to write)
+node src/validation-harness.mjs baseline <suitePath> --skill <SKILL.md> --update
+```
+
+`evolve approve` consults the gate before applying a mutation, but only when a
+suite **and** a baseline both exist for the target skill — otherwise it is a
+silent no-op and behaves exactly as before. `--force` overrides the refusal.
+
+### Guarantees
+
+- **Offline** — no network, no LLM calls, no arbitrary command execution; file reads only
+- **Deterministic** — same suite + same SKILL.md ⇒ same scores, same verdict
+- **Zero new npm deps** — Node stdlib only
+- **Atomic writes** — temp + rename for every baseline file
+- **Tests use temp dirs only** (`fs.mkdtempSync`) — never touch the real home
+
+## Multi-iteration evolution loop (issue #36)
+
+### Problem
+
+`evolve --all` is one-shot: baseline → analyze → propose → Pareto filter → write. There is no
+iteration state, no run history, no acceptance statistics, and no early termination. WikiSkill
+Algorithm 1 treats evolution as a bounded loop with per-iteration bookkeeping; meta-skills should
+mirror that shape.
+
+### Solution
+
+`src/evolution-loop.mjs` — a dependency-injected loop controller. Each iteration runs
+measure → propose → gate → (optionally) apply, then records itself.
+
+```
+meta-skills evolve loop run [--iterations 5] [--ceiling 100] [--no-progress-stop 2] [--write] [--json]
+meta-skills evolve loop status [--json]
+```
+
+Options and defaults: `iterations = 5`, `ceiling = 100`, `stopAtCeiling = true`,
+`noProgressStop = 2`, `write = false` (DRY-RUN is the default — the index is never mutated),
+`globalJson` / `proposalsPath` / `iterationsPath` default under `~/.meta-skills/`.
+
+### Records file shape
+
+`~/.meta-skills/evolve/iterations.jsonl`, one JSON object per line:
+
+```json
+{ "ts": "...", "type": "iteration", "runId": "ev-...", "iteration": 1, "mode": "dry-run",
+  "proposalsAttempted": 3, "proposalsKept": 2, "applied": 0, "accepted": 2,
+  "scoreBefore": 50, "scoreAfter": null, "estimatedDelta": 4, "skillIds": ["a"],
+  "stage": "early", "termination": null }
+```
+
+Stage buckets: early = iterations 1-2, mid = 3-5, late = 6+. A closing `type: "summary"` record
+carries `iterationsRun`, `acceptanceRate`, `applied`, `termination`, `avgDelta`,
+`stageStats: { early, mid, late }` and `perSkill: { <id>: { attempted, accepted } }`.
+Corrupt or half-written lines are skipped on read.
+
+### Termination
+
+Checked in order per iteration: `ceiling` (metric ≥ ceiling) → `no-progress` (N consecutive
+iterations without improvement) → `max-iterations` (k === K). `manual` is written by the SIGINT
+path (`finalizeManual()`, exit 130). Improvement means a measured gain in write mode, otherwise a
+positive estimate in dry-run.
+
+### Write mode
+
+`--write` snapshots the index (`rollback-ledger.mjs`), applies the gate-surviving mutations with
+the existing evolution machinery, re-measures, and restores the snapshot when the post-apply score
+drops below the pre-apply score — that iteration is recorded as rejected with reason `regression`.
+
+### Integration notes
+
+The default `measure` dep is the average quality score (scalar 0-100). The issue #35 validation
+harness plugs in later by replacing that dep — keep the scalar contract. `src/wiki.mjs` (in-flight)
+can feed `analyze` with wiki-derived proposals; the loop only requires `analyze(index, baseline)`.
+Read-only views: MCP tool `iteration_summary` and dashboard `GET /api/iterations` both return
+`summarizeIterations()` output.
+
+## Raw evidence capture (issue #37)
+
+### `src/traces.mjs` — the raw layer
+
+- One file per trace: `~/.meta-skills/traces/<id>.md`, where `<id>` is
+  `<yyyymmdd-hhmmss>-<hash6>` (timestamp + sha256 of content, deterministic)
+  or an explicit `opts.id`.
+- **Write-once / immutable**: storing an id that already exists throws a clear
+  error — traces are never overwritten. Writes go through temp file + rename.
+- **Size cap**: content longer than `MAX_TRACE_CHARS` keeps the first 15,000
+  chars and appends `[truncated: kept 15000 of N chars]`; `storeTrace` reports
+  `truncated: true` and `originalChars`.
+- **No delete/prune API** — the raw layer is append-only by design.
+- API: `defaultTracesDir()`, `storeTrace()`, `readTrace()`, `listTraces()`
+  (sorted by id), `traceStats()`, `sampleTraces()`.
+
+### Shared constants (imported by sampling/consolidation work)
+
+- `MAX_TRACES_PER_CYCLE = 8` — traces analyzed per analysis cycle.
+- `MAX_FAIL_TRACES = 5` — failing traces per cycle.
+- `MAX_PASS_TRACES = 3` — passing traces per cycle (5 + 3 = 8).
+- `MAX_TRACE_CHARS = 15000` — per-trace character cap.
+- `sampleTraces(items)` classifies by `outcome` (`failure`/`fail` vs
+  `success`/`pass`) and returns `{ failing, passing, sampled, total }`,
+  deterministic in input order; `opts.maxFail` / `opts.maxPass` override.
+
+### Event linkage
+
+`record --evidence <file|->` stores the trace and links it on the usage event
+as `traceId` (plus `traceTruncated` when the cap was hit). Without
+`--evidence` the event shape is exactly as before — additive-only, so existing
+consumers (aggregate, dashboard, failure-analyzer) keep working.
+
+### Privacy
+
+Traces are user-provided and may contain sensitive data (prompts, reasoning
+excerpts, tool calls, file contents). They stay local: written under the user's
+own `~/.meta-skills/traces`, never uploaded, never serialized into sync
+payloads — `sync` remains metadata/usage-only. `src/traces.mjs` makes no
+network calls.
+
+## Consolidation step (issue #38)
+
+`src/consolidate.mjs` turns raw evidence into structured knowledge: wiki pattern
+pages with root-cause analysis, plus index + log upkeep.
+
+### Evidence model
+
+One JSONL line per evidence item:
+
+```json
+{"skill": "auth", "outcome": "failure", "timestamp": "2026-01-01T00:00:00Z",
+ "excerpt": "token timeout refresh loop", "traceId": "tr-1"}
+```
+
+`loadEvidence()` accepts a `.jsonl` file or a directory of them (cap 500 entries,
+corrupt lines skipped).
+
+### Grouping and thresholds
+
+- Group by outcome + skill + signature; signature = top ≤6 keywords from the
+  excerpt, frequency-sorted with alphabetical tie-break (deterministic).
+- A group becomes a pattern only when its size ≥ `--min-evidence` (default 2);
+  smaller groups are reported as `skippedBelowThreshold`.
+- Failure groups → `failure-<skill>-<signature-slug>`; success groups →
+  `success-<skill>-<signature-slug>`.
+
+### Pattern template
+
+Enforced sections, in order: `# <name>`, `## Description`, `## Root Cause`,
+`## Evidence`, `## Fix`, `## Last Updated` (ISO date). Evidence bullets are
+`- <ts> <skill> [trace <id>] — <excerpt first 60 chars>`.
+
+### Update, don't duplicate
+
+When `<name>.md` already exists, `upsertPattern()` edits it in place: new bullets
+are inserted right after the `## Evidence` header (exact-substring insertion) and
+`## Last Updated` is refreshed. Pages are never rewritten wholesale and never
+duplicated. Every write is atomic (temp + rename, no `.tmp` leftovers).
+
+### Index and log upkeep
+
+- `index.md` — one sorted line per pattern: `- [<name>](patterns/<name>.md): <description first sentence>`.
+- `logs.md` — one timestamped summary line per run (created/updated counts).
+
+### Dry-run default
+
+`consolidate()` computes everything and writes nothing unless `opts.write === true`
+(CLI `--write`), and reports `dryRun: true` in its summary.
+
+```bash
+node src/consolidate.mjs --input ~/.meta-skills/logs --dir ~/.meta-skills/wiki \
+  --min-evidence 2 --write --json
+```
+
+### Integration points
+
+- Raw trace capture (issue #37, `src/traces.mjs`) supplies `traceId` values; not imported here.
+- Wiki layer (issue #33, `src/wiki.mjs`) owns page rendering elsewhere; consolidate writes plain markdown so it stays standalone.
+- `src/cli.mjs` dispatch for `meta-skills consolidate` is a follow-up — the module runs standalone today.
+
+## Success-strategy mining (issue #39)
+
+### Problem
+
+v1.3 failure analysis reads only `outcome=failure` events, and self-improve
+counts usage without capturing *why* a run worked. A skill that keeps
+succeeding has no record of the behavior worth preserving, so a later
+mutation can silently regress it. WikiSkill's trace sampling keeps passing
+traces too — "to identify effective strategies and prevent regressions in
+working behaviors". Issue #39 applies the same idea to meta-skills.
+
+### Solution — `src/success-miner.mjs`
+
+- `loadSuccessEvents({ logDir, maxEvents = 500 })` — read daily `*.jsonl`
+  logs, keep `outcome === 'success'`, skip corrupt lines, cap at `maxEvents`.
+- `analyzeSuccesses(events, { minCount = 2, maxKeywords = 6, maxExcerpts = 3 })`
+  — group by `event.skill`; for skills with `count >= minCount` build
+  `{ skill, count, firstAt, lastAt, keywords, excerpts }`. Keywords use
+  selfheal's extractor (same stopwords, freq-desc then alpha-asc) so both
+  sides of the loop agree; excerpts come from
+  `excerpt | prompt | hint | reason | summary` when the event carries text
+  (plain usage-tracker events often do not → empty `excerpts`).
+- `clustersToNotes(clusters)` → one reinforce note per cluster:
+  `{ skill, kind: 'reinforce', generated, reason, suggestedGuidance: [1-2 bullets] }`.
+- `writeNotes(notes, path)` / `readNotes(path)` — JSONL at
+  `~/.meta-skills/evolve/reinforce-notes.jsonl`. `writeNotes` **appends**
+  (ledger style like `history.jsonl`: cheap, crash-safe, no read-modify-write
+  race). `readNotes` skips corrupt lines and returns `[]` for a missing file.
+  If notes ever need dedupe or in-place update, switch to read + append +
+  atomic write (temp + rename) — that is the tradeoff accepted here.
+
+### CLI
+
+```
+meta-skills success analyze [--log-dir <p>] [--min-count 2] [--max-events 500] [--json]
+meta-skills success notes   [--log-dir <p>] [--min-count 2] [--max-events 500]
+                            [--notes-path <p>] [--write] [--json]
+```
+
+`notes` is **dry-run by default**; `--write` appends and prints the written count.
+
+### Integration
+
+`meta-skills propose --with-success` (function-level `withSuccess` option)
+also loads success events, clusters them and emits reinforce notes — written
+on a real run, printed on `--dry-run`. Without the flag, `propose` behavior is
+unchanged. The integration stays ~20 lines and imports only modules present in
+this tree (`selfheal.mjs`, `success-miner.mjs`); a later issue can feed
+`suggestedGuidance` into the quality scorer or the evolve validation gate.
+
+## Skill provenance (issue #40)
+
+`src/provenance.mjs` gives every skill a durable `PURPOSE.md` in its own directory — the
+meta-skills analogue of WikiSkill's `PURPOSE.md`, which maps a skill back to the patterns
+that inspired it. Without it, audits like "why does this rule exist?" are impossible after a
+few mutations; `splitFrom` / `mergedFrom` / `rewrittenBy` are incidental index fields, not a
+story.
+
+### Template
+
+```markdown
+# PURPOSE: <name>
+
+## What this skill is
+<description>
+
+## Origin
+<origin>
+
+## Evidence
+- <bullet>
+
+## Evolution History
+- <date> <version?> — <summary>
+```
+
+- The history section may start empty; entries render as `- <date> <version?> — <summary>`.
+- **Append-only**: `appendHistory()` inserts the new line as the first list item directly
+  after the `## Evolution History` header line — existing entries are never rewritten.
+- **Create guard**: `writePurpose()` throws if `PURPOSE.md` already exists unless
+  `opts.overwrite` is true; `ensurePurpose()` creates only when missing.
+- **Atomic write** (temp + rename), matching the house pattern.
+
+### CLI
+
+```bash
+node src/provenance.mjs init <skillDir> --name X [--description ..] [--origin ..] [--overwrite]
+node src/provenance.mjs append <skillDir> --summary ".." [--version ..] [--date YYYY-MM-DD]
+node src/provenance.mjs show <skillDir>
+node src/provenance.mjs check [--global-json <path>] [--json]
+```
+
+`check` lists skill ids whose resolved directory (dirname of the entry's `path`) has no
+`PURPOSE.md`; entries with a missing or unresolvable path are skipped.
+
+### Integration
+
+- **evolution.mjs** — `approveProposal()` calls `recordProvenance()` after the mutation is
+  applied: for each affected skill id, resolve the `SKILL.md` path from the updated index;
+  if the file exists, ensure `PURPOSE.md` (origin `Created by evolution approval <proposal id>`)
+  and append one history entry (`date`, new `version`, `summary = proposal.reason`).
+  Fully best-effort and wrapped in try/catch — approvals never fail because of provenance,
+  and unresolvable skills are skipped silently.
+- **validate.mjs** — `--check-provenance` emits warnings (not errors) for skills missing
+  `PURPOSE.md`, analogous to `--check-engines`; exit code is unchanged.
+- **cli.mjs** — subcommand wiring is a documented integration point, not part of this change.
+- **Tests** — `src/provenance.test.mjs` (25 assertions, temp dirs only), inserted into the
+  test chain immediately before `src/packaging.test.mjs`.
+
+### Constraints
+
+- Zero new npm deps (Node stdlib only), portable APIs (Windows-safe `fs.renameSync`).
+- No changes to existing behavior: provenance is additive, warning-only, and best-effort.
+
+## Generality & transferability audit (issue #41)
+
+Skills are supposed to transfer across projects, machines and agents. A skill
+that encodes a localized workaround does not transfer — and can actively hurt.
+
+WikiSkill transfer study: a stronger model dropped from **50.5 → 18.1** on one
+benchmark when it used a weaker model's *localized* skills; *general* skills
+raised the same benchmark to **63.4**. Negative transfer is the failure mode
+this module guards against.
+
+### Signals (`src/generality-audit.mjs`)
+
+`auditGenerality(content, opts)` scans content — usually a proposal `diff` —
+for localized signals. Each kind counts occurrences and carries a penalty
+(weight × count, capped per kind so one stray docs URL cannot wreck a score):
+
+| kind | matches | weight | cap |
+|------|---------|--------|-----|
+| `abs-path` | `C:\`, `/Users/`, `/home/`, `\\server` | 12 | 48 |
+| `one-off-url` | `http(s)://…` (docs URLs are borderline, still counted) | 3 | 15 |
+| `machine-name` | "this machine", "this pc", "my computer", … | 8 | 40 |
+| `repo-local` | "in/for/local to this repo/project" **plus** a filename token on the same line | 10 | 50 |
+| `user-name` | `C:\Users\<name>\…` or `/Users/<name>/…` subpath (own kind only when the name is present) | 10 | 40 |
+
+Score = `100 − Σ penalties`, clamped 0–100. `ratio` = flags per 1000 chars
+(2 decimals). Labels: **general ≥ 80**, **mixed 50–79**, **localized < 50**.
+
+### Review display
+
+`evolve review` prints one extra line per pending proposal:
+
+```
+    generality: 78/100 (mixed) — flags: abs-path x2, repo-local x1
+```
+
+Informational only — review never blocks.
+
+### `evolve approve --strict`
+
+With `--strict`, the target skill's scope is read from the index entry's
+`scope` field (`project` or `global`; **default `global` when absent**). If the
+proposal is `localized` **and** the scope is `global`, approval is refused with
+a clear message and a non-zero exit. Otherwise it proceeds.
+
+**Scope escape hatch:** an entry with `scope: "project"` is allowed to keep
+localized content — a genuinely project-local skill is not penalized. `scope`
+is read opportunistically; it is not yet in `schema/v1.json`.
+
+### Tests
+
+`src/generality-audit.test.mjs` — 17 tests (pure functions, no temp dirs):
+true positives per kind, clean/mixed/localized fixtures, ratio math, label
+boundaries (80/79, 50/49), caps, format rendering. Runs in the `npm test`
+chain immediately before `packaging.test.mjs`.
+
+## Analysis sampling & evidence budget (issue #42)
+
+Analysis must stay tractable: a cycle reads a bounded, deduped, stratified
+sample instead of every recorded failure. Implemented in `src/sampling.mjs`
+(stdlib only).
+
+### Constants
+
+| Constant | Value | Meaning |
+| --- | --- | --- |
+| `MAX_TRACES_PER_CYCLE` | 8 | total traces one analysis cycle may read |
+| `MAX_FAIL_TRACES` | 5 | failing traces per cycle |
+| `MAX_PASS_TRACES` | 3 | passing traces per cycle (control group) |
+| `MAX_TRACE_CHARS` | 15000 | per-trace character budget |
+| `MIN_EVIDENCE` | see below | minimum evidence per patch kind |
+
+`MIN_EVIDENCE`: `antiPattern` 2, `whenTighten` 2, `split` 5 (this repo's
+existing split heuristic already requires ≥5 heterogeneous failures),
+`generic` 2. Unknown kinds fall back to `generic`.
+
+### Selection pipeline
+
+`selectEvidence(items)` runs, in order:
+
+1. **dedupe** — `dedupeByContent(items, keyFn?)`: sha256 of `keyFn(item)`
+   (default: JSON of the item), truncated to 12 hex chars; first occurrence
+   wins, input order preserved.
+2. **stratify** — `stratify(items)`: split by `item.outcome`
+   (`failure`/`fail` vs `success`/`pass`), ordered by timestamp descending
+   when timestamps exist, then per-class caps.
+3. **caps** — `enforceCaps(items)`: count cap (`MAX_TRACES_PER_CYCLE`) and
+   per-item length cap (`MAX_TRACE_CHARS`); truncated items get `…[truncated]`
+   and `truncated: true` on a shallow copy — inputs are never mutated.
+
+Returns `{ selected, stats: { input, deduped, failing, passing, truncated } }`.
+
+### Minimum-evidence policy
+
+`validateEvidenceCount(count, kind)` returns
+`{ ok, required, actual, message }`. A proposal may not be declared from fewer
+traces than its kind's documented minimum.
+
+### Where it is enforced
+
+- `src/failure-analyzer.mjs` — `analyzeFailures()` samples each skill's events
+  at the read point (`selectEvidence`) and prints a one-line stats note when
+  items are deduped, capped, or truncated.
+- The same loop gates the declared patch type with `validateEvidenceCount`
+  (`patchKindFor()` maps patch types to kinds). Warning-level: the shortfall is
+  surfaced, existing flows are not hard-failed.
+- CLI: `node src/sampling.mjs check --input <file.jsonl> [--json]`.
+- Tests: `src/sampling.test.mjs` (in the `npm test` chain before
+  `packaging.test.mjs`).
+
+### Integration points
+
+Sampling is self-contained by design — modules from other in-flight issues
+(e.g. a future proposer that must read ≥4 traces) should call
+`selectEvidence` + `validateEvidenceCount(count, kind)` rather than re-implement
+the caps.
+
 ## Audit fixes (issue #43)
 
 Code-level fixes from the full repo read-through. Reject-retention semantics (issue #34)
@@ -288,3 +752,99 @@ are owned by that sibling issue and are unchanged here.
 - **Rollback ledger hash** — `hashContent()` uses a top-level
   `import { createHash } from 'node:crypto'`; the `require()` in an ES module always threw
   and silently fell back to a weak length-based hash.
+
+## Outcome read-back & retention (issue #34)
+
+**The problem:** the pipeline writes proposals but never reads them back. `analyzeMutations()` /
+`generateProposals()` score the present only, so a target a human already rejected comes back on
+the next run. Worse, `propose reject` unlinked the proposal file while `evolve reject` kept it as
+`rejected` — two pipelines, two memories.
+
+**The fix:** every outcome is recorded, and proposal generation consults that record before it
+suggests anything.
+
+### Audit trail
+
+- **Location** — `<proposals dir>/skill-impact.jsonl`, derived with `path.dirname` when the store
+  is a file. The log lives next to the store it audits, so tests stay hermetic.
+- **Schema** — one JSON object per line:
+  `{ ts, proposalId, type, skills: [..], outcome: 'accepted'|'rejected', reason? }`
+  `ts` is filled in when missing; corrupt lines are skipped; a missing file reads as `[]`.
+- **Read-back key** — `type|target`, where target is a skill id or `a+b` for a merge — the same
+  shape the proposal constructor uses, so both pipelines agree.
+
+### Read-back rule
+
+- **Never re-propose a rejected target+direction.** `buildRejectedKeys()` merges rejected rows from
+  the proposals store with rejected entries from the trail; `suppressRejected(opportunities, keys)`
+  returns `{ kept, suppressed }` and only `kept` reaches `generateProposals()`.
+- **Counter line** — `evolve` prints `suppressed N previously-rejected candidate(s)` so the skip is
+  visible in the run output, not silent.
+- **Review output** — a pending proposal whose key matches a prior rejection is marked
+  `[previously rejected]`, and rejected entries stay listed (id, date, reason) as tombstones.
+
+### Retention semantics
+
+- **reject = tombstone.** The `.patch` file is retained; a `<id>.rejected.json` sidecar records
+  `{ rejectedAt, reason }`. Rejected proposals are hidden from `propose list` by default and shown
+  with `--all`, each marked `[rejected <date>]`.
+- **`--purge --yes` = delete.** Permanent removal is explicit and refuses without `--yes`
+  (`refusing to purge without --yes`). Purging does not rewrite the audit trail — the outcome stays.
+- **Explicit paths everywhere** — `impactLogPath(storeDirOrFile)`, `appendImpact(entry, logPath)`,
+  `readImpact(logPath)` all take the path, so nothing defaults to `~/.meta-skills` in tests.
+
+## Wiki Layer (issue #33)
+
+### Problem
+
+Usage events record what happened (`logs/*.jsonl`) and the index records what
+skills exist (`global.json`). Neither records what was learned: the root cause
+behind a failure and the fix that held. Without that layer the same problem is
+rediscovered every session.
+
+### Solution
+
+`src/wiki.mjs` — a persistent, compounding knowledge layer under the
+meta-skills home directory, kept separate from raw usage events and the index:
+
+```
+~/.meta-skills/wiki/
+  index.md         # one entry per pattern: PROBLEM + ROOT CAUSE + FIX
+  logs.md          # append-only timestamped activity log
+  skill-impact.md  # machine-written lines: which skill changed, and why
+  patterns/        # one page per pattern, ~10-30 lines
+```
+
+Skill updates build on this layer: a mutation is justified by a pattern page,
+and the mutation itself is written back to `skill-impact.md`.
+
+### Rules
+
+- Index entries are 1-2 sentences in PROBLEM + ROOT CAUSE + FIX form.
+- Pattern pages are ~10-30 lines: root cause, the exact observed sequence, and
+  the concrete fix.
+- Capture success patterns as well as failure patterns — knowing what works is
+  as valuable as knowing what broke.
+- Update an existing pattern instead of duplicating it; `createPattern` throws
+  when the slug already exists.
+- The wiki is never rolled back — skills are. `rollback-ledger.mjs` restores
+  `global.json` only; the wiki is append/update-only.
+- Pattern names are slugs: lowercase `[a-z0-9-]`, `.md` optional and normalized.
+
+### API
+
+- `defaultWikiDir()`, `ensureWiki(dir)` — idempotent structure creation
+- `readWikiIndex(dir)`, `readWiki(dir)`, `updateIndex(dir, content)`
+- `appendLog(dir, text)`, `recordSkillImpact(dir, entry)`
+- `createPattern(dir, name, content)`, `readPattern(dir, name)`,
+  `updatePattern(dir, name, content)`, `listPatterns(dir)`
+- CLI: `node src/wiki.mjs init|status [--wiki-dir <path>] [--json]`
+
+### Constraints
+
+- Zero new npm deps (`node:fs`, `node:path`, `node:os`)
+- Atomic writes via temp + rename; no `.tmp` files left behind
+- 22 tests in `src/wiki.test.mjs`, every one inside
+  `fs.mkdtempSync(path.join(os.tmpdir(), 'wiki-'))` — the real home directory
+  is never touched
+- No network, no external API calls
