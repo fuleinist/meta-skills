@@ -1026,6 +1026,26 @@ Returns `{ selected, stats: { input, deduped, failing, passing, truncated } }`.
 - CLI: `node src/sampling.mjs check --input <file.jsonl> [--json]`.
 - Tests: `src/sampling.test.mjs` (runs in the `npm test` chain).
 
+## Audit fixes (issue #43)
+
+- `evolve approve` materializes real SKILL.md files for split/merge/rewrite — it no longer
+  edits only the index entry.
+- A rollback-ledger snapshot is taken before anything is written; a snapshot problem never
+  blocks the approval.
+- Split writes `<skillsRoot>/<new-id>/SKILL.md` as a sibling of the source skill directory
+  (root = `dirname(dirname(entry.path))`); merge writes `<skillsRoot>/<mergedId>/SKILL.md`
+  with `## From <idA>` / `## From <idB>` sections; the index entry `path` points at the file.
+- All writes are temp + rename and stay inside the resolved skills root. A source file that
+  cannot be resolved skips materialization for that entry and is noted, never a crash.
+- The placeholder guard (`Example usage here`, `TODO`, `FIXME`, `placeholder`, `<insert`) runs
+  in every apply path before a file is written.
+- Blocked content sets `needsAuthoring: true` on the proposal with a clear message; the
+  index-only mutation is still applied so the review trail stays intact.
+- Rewrite proposals whose content cannot be grounded in the source file are flagged
+  `needsAuthoring` rather than written as placeholders.
+- Proposal IDs are unique within a batch (sequence counter + short diff hash), and the write
+  batch dedupes by `(type, target, diff-hash)`.
+
 ## Outcome read-back & retention (v0.2.5)
 
 **The problem:** proposals are generated from current quality scores only. Nothing reads history

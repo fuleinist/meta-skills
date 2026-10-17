@@ -727,6 +727,32 @@ Sampling is self-contained by design — modules from other in-flight issues
 `selectEvidence` + `validateEvidenceCount(count, kind)` rather than re-implement
 the caps.
 
+## Audit fixes (issue #43)
+
+Code-level fixes from the full repo read-through. Reject-retention semantics (issue #34)
+are owned by that sibling issue and are unchanged here.
+
+- **Approve materializes files** — `evolve approve` no longer mutates the index only.
+  `takeSnapshot` runs first (best-effort, never blocks approval), then real SKILL.md files
+  are written: split creates `<skillsRoot>/<new-id>/SKILL.md` as a sibling of the source
+  skill directory (root = `dirname(dirname(entry.path))`), merge writes
+  `<skillsRoot>/<mergedId>/SKILL.md` with both sources under `## From <id>` sections, and
+  rewrite writes the derived content. Entry `path` values point at the written files.
+- **Write safety** — every file write is temp + rename, inside the resolved skills root;
+  targets that escape the root are refused. An unresolvable source file skips
+  materialization for that entry and is noted, never a crash.
+- **Placeholder guard** — `PLACEHOLDER_MARKERS` (`Example usage here`, `TODO`, `FIXME`,
+  `placeholder`, `<insert`) are checked in every apply path. Content containing a marker
+  (or empty content) is refused; the proposal is flagged `needsAuthoring: true` with a
+  clear message and the index-only behavior is kept.
+- **Rewrite may be flagged** — engine-derived rewrite content that cannot be grounded in
+  the source file is not written; it is marked `needsAuthoring` for a human to author.
+- **Unique proposal IDs** — IDs carry a per-batch sequence counter plus a short sha-256 of
+  the diff, and the write batch dedupes by `(type, target, diff-hash)`.
+- **Rollback ledger hash** — `hashContent()` uses a top-level
+  `import { createHash } from 'node:crypto'`; the `require()` in an ES module always threw
+  and silently fell back to a weak length-based hash.
+
 ## Outcome read-back & retention (issue #34)
 
 **The problem:** the pipeline writes proposals but never reads them back. `analyzeMutations()` /

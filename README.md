@@ -469,11 +469,11 @@ Design notes:
 - [x] **v1.6** - Skill quality scoring: readability, trigger precision, instruction clarity, token efficiency
 - [x] **v1.7** - Token budget optimizer: greedy demote/archive of low value-density skills under a cap
 - [x] **v1.8** - Skill bundles & recipes: user-defined bundles + multi-step recipe files
-- [x] **v1.9** - Semantic search & fuzzy matching: embedding-based skill discovery
+- [x] **v1.9** - Semantic search & fuzzy matching: trigram TF-IDF scoring + Levenshtein distance. No embedding model is used — embeddings are not implemented.
 
 ### 🔮 Next (v0.1+)
 
-- [x] **v0.1 - Autonomous skill evolution** - Full EvoSkill-inspired loop: the system runs a held-out validation task, measures skill effectiveness, proposes mutations (split/merge/rewrite SKILL.md), and keeps only Pareto-improving variants. Human-in-the-loop approval gate. `meta-skills evolve baseline|propose|review|approve|reject|--all`. *Inspired by: EvoSkill (7.3% OfficeQA gain, 12.1% SealQA gain, zero-shot transfer), Cognee self-improving skills.*
+- [~] **v0.1 - Autonomous skill evolution** - EvoSkill-inspired loop: measures skill effectiveness with the v1.6 heuristic scorer, proposes mutations (split/merge/rewrite SKILL.md), keeps only Pareto-improving variants, and materializes the resulting SKILL.md files on approval. Human-in-the-loop approval gate. `meta-skills evolve baseline|propose|review|approve|reject|--all`. The held-out validation task itself is not implemented in this tree — validation harness tracked in issue #35. *Inspired by: EvoSkill (7.3% OfficeQA gain, 12.1% SealQA gain, zero-shot transfer), Cognee self-improving skills.*
 
 - [x] **v0.1.1 - Semantic versioning for skills** - Add `version` and `engines` frontmatter fields to SKILL.md files for individual skill version tracking. `meta-skills validate` checks semantic versions against runtime CLI engine compatibility. *Inspired by: npm package.json versioning, skill migration patterns.*
 
