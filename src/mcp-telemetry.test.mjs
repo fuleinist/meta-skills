@@ -47,9 +47,9 @@ async function main() {
     assert.deepEqual(res.result, {});
   });
 
-  await ok('handleRequest: tools/list returns 5 tools', async () => {
+  await ok('handleRequest: tools/list returns 6 tools', async () => {
     const res = await handleRequest({ jsonrpc: '2.0', id: 3, method: 'tools/list' }, index);
-    assert.equal(res.result.tools.length, 5);
+    assert.equal(res.result.tools.length, 6);
     assert.deepEqual(res.result.tools.map((t) => t.name), TOOLS.map((t) => t.name));
   });
 
