@@ -15,6 +15,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseSemver, checkEngines } from './semver-compat.mjs';
 import { validatePermissions } from './permissions.mjs';
+import { skillsMissingProvenance } from './provenance.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_SCHEMA = path.resolve(__dirname, '..', 'schema', 'v1.json');
@@ -188,11 +189,14 @@ function main(options) {
         schemaPath = path.resolve(args[++i]);
       } else if (args[i] === '--check-engines') {
         // flag handled below via opts
+      } else if (args[i] === '--check-provenance') {
+        // flag handled below via opts
       } else {
         files.push(path.resolve(args[i]));
       }
     }
     if (args.includes('--check-engines')) opts.checkEngines = true;
+    if (args.includes('--check-provenance')) opts.checkProvenance = true;
   }
 
   // Load schema
@@ -205,7 +209,7 @@ function main(options) {
   }
 
   if (files.length === 0) {
-    console.log(`Usage: node src/validate.mjs [--schema <path>] <file1.json> [file2.json ...]`);
+    console.log(`Usage: node src/validate.mjs [--schema <path>] [--check-engines] [--check-provenance] <file1.json> [file2.json ...]`);
     process.exit(0);
   }
 
@@ -288,6 +292,13 @@ function main(options) {
       const warnings = checkSkillEngines(data);
       for (const w of warnings) {
         console.log(`⚠ ${filePath}: ${w}`);
+      }
+    }
+
+    // issue #40 — provenance warnings (non-fatal, warnings only)
+    if (opts.checkProvenance) {
+      for (const id of skillsMissingProvenance(data)) {
+        console.log(`⚠ ${filePath}: ${id}: missing PURPOSE.md`);
       }
     }
   }
