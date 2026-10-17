@@ -1172,6 +1172,7 @@ function showHelp() {
   console.log('  --project-dir <path>       Custom project directory');
   console.log('  --schema <path>            Custom schema file (for validate)');
   console.log('  --outcome success|failure  Outcome of skill activation (for record)');
+  console.log('  --evidence <file|->        Raw trace for record, via usage-tracker (issue #37)');
   console.log('  --sync-dir <path>          Shared sync directory (for sync commands)');
   console.log('  --source <name>            Restrict to a marketplace source (search/list)');
   console.log('  --limit <n>                Max results for search/list (default 20/100)');

@@ -396,6 +396,47 @@ can feed `analyze` with wiki-derived proposals; the loop only requires `analyze(
 Read-only views: MCP tool `iteration_summary` and dashboard `GET /api/iterations` both return
 `summarizeIterations()` output.
 
+## Raw evidence capture (issue #37)
+
+### `src/traces.mjs` — the raw layer
+
+- One file per trace: `~/.meta-skills/traces/<id>.md`, where `<id>` is
+  `<yyyymmdd-hhmmss>-<hash6>` (timestamp + sha256 of content, deterministic)
+  or an explicit `opts.id`.
+- **Write-once / immutable**: storing an id that already exists throws a clear
+  error — traces are never overwritten. Writes go through temp file + rename.
+- **Size cap**: content longer than `MAX_TRACE_CHARS` keeps the first 15,000
+  chars and appends `[truncated: kept 15000 of N chars]`; `storeTrace` reports
+  `truncated: true` and `originalChars`.
+- **No delete/prune API** — the raw layer is append-only by design.
+- API: `defaultTracesDir()`, `storeTrace()`, `readTrace()`, `listTraces()`
+  (sorted by id), `traceStats()`, `sampleTraces()`.
+
+### Shared constants (imported by sampling/consolidation work)
+
+- `MAX_TRACES_PER_CYCLE = 8` — traces analyzed per analysis cycle.
+- `MAX_FAIL_TRACES = 5` — failing traces per cycle.
+- `MAX_PASS_TRACES = 3` — passing traces per cycle (5 + 3 = 8).
+- `MAX_TRACE_CHARS = 15000` — per-trace character cap.
+- `sampleTraces(items)` classifies by `outcome` (`failure`/`fail` vs
+  `success`/`pass`) and returns `{ failing, passing, sampled, total }`,
+  deterministic in input order; `opts.maxFail` / `opts.maxPass` override.
+
+### Event linkage
+
+`record --evidence <file|->` stores the trace and links it on the usage event
+as `traceId` (plus `traceTruncated` when the cap was hit). Without
+`--evidence` the event shape is exactly as before — additive-only, so existing
+consumers (aggregate, dashboard, failure-analyzer) keep working.
+
+### Privacy
+
+Traces are user-provided and may contain sensitive data (prompts, reasoning
+excerpts, tool calls, file contents). They stay local: written under the user's
+own `~/.meta-skills/traces`, never uploaded, never serialized into sync
+payloads — `sync` remains metadata/usage-only. `src/traces.mjs` makes no
+network calls.
+
 ## Outcome read-back & retention (issue #34)
 
 **The problem:** the pipeline writes proposals but never reads them back. `analyzeMutations()` /
