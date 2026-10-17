@@ -26,6 +26,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -55,19 +56,9 @@ function defaultGlobalJson() {
  */
 
 function hashContent(content) {
-  // Simple hash — use Node's crypto for sha256
-  try {
-    const { createHash } = require('node:crypto');
-    return createHash('sha256').update(content).digest('hex').slice(0, 16);
-  } catch {
-    // Fallback: length-based identifier
-    let h = 0;
-    for (let i = 0; i < content.length; i++) {
-      h = ((h << 5) - h) + content.charCodeAt(i);
-      h |= 0;
-    }
-    return Math.abs(h).toString(16).padStart(8, '0');
-  }
+  // sha-256 via node:crypto (issue #43 item 4: `require()` inside an ES module
+  // always threw and silently fell back to a weak length-based hash).
+  return createHash('sha256').update(String(content)).digest('hex').slice(0, 16);
 }
 
 // ── Snapshot ──────────────────────────────────────────────────────────

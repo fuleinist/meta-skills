@@ -8,7 +8,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { takeSnapshot, listSnapshots, rollback, pruneSnapshots, defaultHistoryPath } from './rollback-ledger.mjs';
+import { createHash } from 'node:crypto';
+import { takeSnapshot, listSnapshots, rollback, pruneSnapshots, hashContent, defaultHistoryPath } from './rollback-ledger.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'meta-skills-rb-'));
@@ -49,10 +50,19 @@ try {
   writeGlobalJson(initialIndex, gjPath);
 
   console.log('takeSnapshot:');
+  const sampleBefore = fs.readFileSync(gjPath, 'utf-8');
   const snap = takeSnapshot({ globalJsonPath: gjPath, historyPath, comment: 'initial' });
   check('snapshot returns hash', !!snap.hash);
   check('snapshot returns ts', !!snap.ts);
   check('history file created', fs.existsSync(historyPath));
+
+  console.log('\nhashContent (issue #43 item 4 — real sha-256, no require() in ESM):');
+  const expected = createHash('sha256').update(sampleBefore).digest('hex').slice(0, 16);
+  check('hashContent equals sha256 slice', hashContent(sampleBefore) === expected);
+  check('snapshot hash equals sha256 slice', snap.hash === expected);
+  const other = '{"skills":[],"stale":[]}';
+  check('hashContent on other content matches sha256', hashContent(other) === createHash('sha256').update(other).digest('hex').slice(0, 16));
+  check('hash is 16 hex chars', /^[0-9a-f]{16}$/.test(hashContent(sampleBefore)));
 
   // Mutate global.json
   initialIndex.skills.push({ id: 'new-skill', when: 'new', why: 'new', path: '/tmp/SKILL2.md', priority: 'low' });
