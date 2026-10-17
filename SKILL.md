@@ -713,3 +713,56 @@ meta-skills skill-impact list [--store <dir-or-file>] [--json]
 - [Skill Discovery Pattern](https://agents.kour.me/skill-discovery/) - Progressive disclosure for agent capabilities
 - [Library Meta-Skill](https://claudefa.st/blog/guide/mechanics/library-meta-skill) - Centralized skill distribution
 - [EvoSkill: Automated Skill Discovery](https://arxiv.org/html/2603.02766v1) - Self-evolving skill frameworks
+
+## Wiki Layer (issue #33)
+
+A persistent knowledge layer under `~/.meta-skills/wiki/`. Events say what
+happened; the wiki says what was learned. It compounds across sessions and is
+kept separate from raw usage events and the skill index.
+
+### Structure
+
+```
+~/.meta-skills/wiki/
+  index.md         # one entry per pattern: PROBLEM + ROOT CAUSE + FIX
+  logs.md          # append-only timestamped activity log
+  skill-impact.md  # machine-written lines: which skill changed, and why
+  patterns/        # one page per pattern, ~10-30 lines
+```
+
+### Rules
+
+- Index entries are 1-2 sentences: **PROBLEM + ROOT CAUSE + FIX**.
+- Pattern pages are ~10-30 lines: root cause, the exact observed sequence, the
+  concrete fix. No filler, no restating the obvious.
+- Capture **success** patterns as well as failures — a fix that held is a
+  pattern, not just the absence of a bug.
+- Update an existing pattern instead of duplicating it. `createPattern` throws
+  on an existing slug; `updatePattern` throws on a missing one.
+- The wiki is **never rolled back** — skills are. The rollback ledger restores
+  `global.json`; knowledge is append/update-only.
+- Pattern names are slugs: lowercase `[a-z0-9-]`, `.md` optional and normalized.
+
+### CLI
+
+```bash
+# Create the structure (safe to call repeatedly)
+node src/wiki.mjs init
+
+# Inspect it
+node src/wiki.mjs status
+node src/wiki.mjs status --json
+
+# Custom location (used by tests and by non-default installs)
+node src/wiki.mjs init --wiki-dir /tmp/wiki
+```
+
+### Design
+
+- **Zero new dependencies** — `node:fs`, `node:path`, `node:os` only
+- **Atomic writes** — temp + rename for every file, so a crash never leaves a
+  half-written pattern
+- **Idempotent setup** — `ensureWiki()` creates what is missing and never
+  clobbers existing content
+- **Greppable impact log** — `- <ISO ts> | skill=<id> | change=<text> | pattern=<slug>`
+- **22 tests** in `src/wiki.test.mjs`, all inside a temp directory
