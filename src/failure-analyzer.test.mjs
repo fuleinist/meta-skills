@@ -9,6 +9,7 @@
  *   - generatePatch (all 4 patch types)
  *   - analyzeFailurePatterns
  *   - writeProposal / listProposals / readProposal / deleteProposal
+ *   - retention semantics (reject = tombstone, --purge --yes = delete)
  *   - CLI subcommands
  */
 
@@ -17,6 +18,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { execSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { impactLogPath, readImpact } from './skill-impact.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const faPath = path.join(__dirname, 'failure-analyzer.mjs');
@@ -273,6 +275,61 @@ function runCli(args) {
 
 const listOut = runCli(`list --proposals-dir "${proposalsDir}"`);
 check('CLI list shows proposals', /test-skill/.test(listOut));
+
+// ── Test 9: retention semantics (issue #34) ────────────────────
+
+console.log('\n--- Retention semantics (issue #34) ---');
+
+const retFile = fa.writeProposal('probe-skill', 'probe diff', 'trigger-tightening', 'retention probe', proposalsDir);
+const retId = path.basename(retFile);
+const baseName = retId.replace(/\.patch$/, '');
+
+const tombstone = fa.rejectProposal(retId, proposalsDir, 'too broad for this repo');
+check('reject keeps the patch file', fs.existsSync(retFile));
+check('reject writes a sidecar tombstone', fs.existsSync(path.join(proposalsDir, `${baseName}.rejected.json`)));
+check('sidecar path reported by rejectProposal', tombstone.sidecar === path.join(proposalsDir, `${baseName}.rejected.json`));
+
+const sidecar = JSON.parse(fs.readFileSync(path.join(proposalsDir, `${baseName}.rejected.json`), 'utf-8'));
+check('sidecar records rejectedAt', typeof sidecar.rejectedAt === 'string' && !isNaN(Date.parse(sidecar.rejectedAt)));
+check('sidecar records reason', sidecar.reason === 'too broad for this repo');
+check('sidecar shape is { rejectedAt, reason }', Object.keys(sidecar).sort().join(',') === 'reason,rejectedAt');
+
+const impactEntries = readImpact(impactLogPath(proposalsDir));
+check('impact log written beside the proposals dir', impactLogPath(proposalsDir) === path.join(proposalsDir, 'skill-impact.jsonl'));
+check('impact log has the rejection', impactEntries.length === 1 && impactEntries[0].outcome === 'rejected');
+check('impact entry carries reason and skill',
+  impactEntries[0].reason === 'too broad for this repo' && impactEntries[0].skills.join(',') === 'probe-skill');
+
+const defaultList = fa.listProposals(proposalsDir);
+check('rejected proposal hidden from default list', !defaultList.some(p => p.file === retId));
+check('default list hides the rejected tombstone', defaultList.length === realResults.length);
+
+const fullList = fa.listProposals(proposalsDir, { all: true });
+check('--all includes the rejected tombstone', fullList.some(p => p.file === retId && p.rejected));
+check('--all carries the tombstone date', fullList.some(p => p.file === retId && p.rejectedAt));
+
+const cliAll = runCli(`list --all --proposals-dir "${proposalsDir}"`);
+if (/EPERM/.test(cliAll)) {
+  console.log('  - CLI --all check skipped (spawn blocked in this sandbox)');
+} else {
+  check('CLI --all marks rejected entries', /\[rejected \d{4}-\d{2}-\d{2}\]/.test(cliAll));
+}
+
+// Purge must be refused without --yes.
+let refused = false;
+try {
+  await fa.cmdPropose(['reject', retId, '--purge', '--proposals-dir', proposalsDir]);
+} catch (e) {
+  refused = /refusing to purge without --yes/.test(e.message);
+}
+check('purge refused without --yes', refused);
+check('refused purge leaves the tombstone intact', fs.existsSync(path.join(proposalsDir, retId)));
+
+// Purge with --yes deletes patch + sidecar.
+await fa.cmdPropose(['reject', retId, '--purge', '--yes', '--proposals-dir', proposalsDir]);
+check('purge with --yes deletes the patch', !fs.existsSync(path.join(proposalsDir, retId)));
+check('purge with --yes removes the sidecar', !fs.existsSync(path.join(proposalsDir, `${baseName}.rejected.json`)));
+check('purge does not rewrite the audit trail', readImpact(impactLogPath(proposalsDir)).length === 1);
 
 // ── Cleanup ────────────────────────────────────────────────────
 
