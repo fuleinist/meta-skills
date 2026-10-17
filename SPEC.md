@@ -263,6 +263,79 @@ These are NOT v1.8:
 - **Atomic write-back** (temp + rename) for all index mutations
 - **Backward compatible** — new commands only; no changes to existing CLI surface except `--version`
 
+## Validation Harness (issue #35)
+
+### Problem
+
+Quality is estimated heuristically (v1.6 `quality-scorer`) and micro-tests exist
+per failed prompt (v0.2.0 `selfheal`), but there is no runner that evaluates a
+SKILL.md against a curated suite of held-out cases, and no rule that forbids a
+neutral change. `selfheal validate` is a Pareto non-regression gate — equal
+scores are accepted, so churn slips through.
+
+### Solution
+
+`src/validation-harness.mjs` — small, deterministic, offline, stdlib-only:
+
+- loads a validation suite (curated held-out cases per skill)
+- scores a given SKILL.md against the suite (reuses `selfheal` scoring via import)
+- persists baselines and compares candidate vs baseline
+- exposes a STRICT gate: accept only when the candidate aggregate **strictly
+  exceeds** the baseline. Equal ⇒ reject ("no improvement"); lower ⇒ reject
+  ("regression"). `force` is the only escape hatch.
+
+### Files
+
+- `~/.meta-skills/validation/suites/<skill-id>.json` — the held-out suite
+- `~/.meta-skills/validation/baselines/<skill-id>.json` — `{ skill, aggregate, cases, ts }`, atomic write (temp + rename)
+
+### Suite format
+
+```json
+{
+  "skill": "deploy-app",
+  "cases": [
+    { "id": "c1", "prompt": "Deploy rollback to production",
+      "keywords": ["deploy", "production"],
+      "mustNotContain": ["freeze window"],
+      "minScore": 50, "weight": 1 }
+  ]
+}
+```
+
+Shape is validated on load; malformed input throws with the offending path
+(`cases[0].minScore must be a number in 0-100`).
+
+### Scoring model
+
+Per case, 0–100, deterministic: 60 pts keyword coverage + 20 pts structural
+guidance (numbered steps / checklist) + 20 pts caution guidance, inherited from
+`scoreSkillAgainstCase`. Any `mustNotContain` hit zeroes the case outright.
+Aggregate = weighted mean of case scores; per-case pass = `score >= (minScore ?? 50)`.
+
+### CLI
+
+```bash
+# Compare a SKILL.md against the suite + baseline (exits 1 when the gate rejects)
+node src/validation-harness.mjs run ~/.meta-skills/validation/suites/deploy-app.json \
+  --skill skills/deploy-app/SKILL.md [--json]
+
+# Show the baseline, or record it (--update required to write)
+node src/validation-harness.mjs baseline <suitePath> --skill <SKILL.md> --update
+```
+
+`evolve approve` consults the gate before applying a mutation, but only when a
+suite **and** a baseline both exist for the target skill — otherwise it is a
+silent no-op and behaves exactly as before. `--force` overrides the refusal.
+
+### Guarantees
+
+- **Offline** — no network, no LLM calls, no arbitrary command execution; file reads only
+- **Deterministic** — same suite + same SKILL.md ⇒ same scores, same verdict
+- **Zero new npm deps** — Node stdlib only
+- **Atomic writes** — temp + rename for every baseline file
+- **Tests use temp dirs only** (`fs.mkdtempSync`) — never touch the real home
+
 ## Outcome read-back & retention (issue #34)
 
 **The problem:** the pipeline writes proposals but never reads them back. `analyzeMutations()` /

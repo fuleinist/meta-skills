@@ -654,6 +654,69 @@ metadata:
 - Node.js engine constraints in package.json
 - EvoSkill version tagging for mutation lineage tracking (future v0.1.2 dependency)
 
+## Phase 13: Validation Harness (issue #35)
+
+Held-out task suites that gate skill changes under a **strict acceptance rule**.
+Where v0.2.0 `selfheal` is a Pareto non-regression gate (equal scores pass), the
+harness refuses anything that is not a strict improvement — no neutral accept.
+
+### Suite format
+
+`~/.meta-skills/validation/suites/<skill-id>.json`:
+
+```json
+{
+  "skill": "deploy-app",
+  "cases": [
+    { "id": "c1", "prompt": "Deploy rollback to production",
+      "keywords": ["deploy", "production"],
+      "mustNotContain": ["freeze window"],
+      "minScore": 50, "weight": 1 }
+  ]
+}
+```
+
+Shape is validated on load; malformed input throws naming the offending field.
+
+### Scoring model
+
+Per case 0–100, deterministic — 60 pts keyword coverage + 20 pts structural
+guidance (numbered steps / checklist) + 20 pts caution guidance, reusing
+`selfheal`'s `scoreSkillAgainstCase` (imported, not modified). Any
+`mustNotContain` hit zeroes the case. Aggregate = weighted mean; a case passes
+when `score >= (minScore ?? 50)`.
+
+### Strict gate
+
+`gate(candidate, baseline)` accepts **only** when candidate > baseline:
+
+- equal ⇒ reject — "no improvement"
+- lower ⇒ reject — "regression"
+- no baseline ⇒ reject
+- `force` is the only escape hatch
+
+Baselines live in `~/.meta-skills/validation/baselines/<skill-id>.json` as
+`{ skill, aggregate, cases, ts }`, written atomically (temp + rename).
+
+### CLI
+
+```bash
+# Compare + gate (exits non-zero when the gate rejects)
+node src/validation-harness.mjs run <suitePath> --skill <SKILL.md> [--json]
+
+# Show or record the baseline (writes only with --update)
+node src/validation-harness.mjs baseline <suitePath> --skill <SKILL.md> --update
+```
+
+`evolve approve` consults the gate before applying a mutation when a suite and
+a baseline both exist for the target skill; otherwise it is a silent no-op.
+
+### Guarantees
+
+- Offline and deterministic — no network, no LLM calls, no command execution
+- Stdlib only — zero new npm deps
+- Tests run in temp dirs (`fs.mkdtempSync`), never the real home (20 tests)
+
 ## Outcome read-back & retention (v0.2.5)
 
 **The problem:** proposals are generated from current quality scores only. Nothing reads history

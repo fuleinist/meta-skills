@@ -19,6 +19,7 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { scoreAll } from './quality-scorer.mjs';
 import { takeSnapshot } from './rollback-ledger.mjs';
+import { checkGateForSkill, defaultValidationDir } from './validation-harness.mjs';
 import { impactLogPath, impactKey, appendImpact, readImpact } from './skill-impact.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -566,8 +567,13 @@ function listProposals(proposalsPath = defaultProposalsPath()) {
 /**
  * Approve a proposal: apply its diff to a working copy of global.json.
  * Returns the mutated index or null on failure.
+ *
+ * Issue #35: when a validation suite AND a baseline exist for the target skill
+ * under the default validation dir, the strict gate runs first — equal or
+ * worse than baseline is refused. `opts.force` overrides. No suite/baseline
+ * ⇒ silent no-op (behaves exactly as before).
  */
-function approveProposal(id, globalJsonPath = defaultGlobalJson(), proposalsPath = defaultProposalsPath()) {
+function approveProposal(id, globalJsonPath = defaultGlobalJson(), proposalsPath = defaultProposalsPath(), opts = {}) {
   const proposals = readProposals(proposalsPath);
   const proposal = proposals.find(p => p.id === id);
   if (!proposal) throw new Error(`Proposal not found: ${id}`);
@@ -578,6 +584,19 @@ function approveProposal(id, globalJsonPath = defaultGlobalJson(), proposalsPath
     index = JSON.parse(fs.readFileSync(globalJsonPath, 'utf-8'));
   } catch {
     throw new Error(`Cannot read ${globalJsonPath}`);
+  }
+
+  // ── Strict validation gate (issue #35) ──
+  const targetId = (proposal.skillIds || [])[0];
+  const target = (index.skills || []).find(s => s.id === targetId);
+  if (target && target.path) {
+    const check = checkGateForSkill(targetId, target.path, { validationDir: opts.validationDir || defaultValidationDir() });
+    if (check) {
+      if (!check.gate.accept && !opts.force) {
+        throw new Error(`validation gate refused ${id}: ${check.gate.reason}`);
+      }
+      console.log(`  validation gate: ${check.gate.accept ? 'accept' : 'reject'} — ${check.gate.reason}${opts.force ? ' (forced)' : ''}`);
+    }
   }
 
   // Snapshot before mutation
@@ -852,6 +871,7 @@ Options:
       : defaultProposalsPath(),
     reason: args.includes('--reason') ? args[args.indexOf('--reason') + 1] : null,
     dryRun: args.includes('--dry-run'),
+    force: args.includes('--force'),
   };
 
   switch (cmd) {
@@ -867,7 +887,7 @@ Options:
     case 'approve': {
       const id = args[1];
       if (!id) { console.error('Usage: meta-skills evolve approve <id>'); process.exit(1); }
-      approveProposal(id, opts.globalJson, opts.proposalsPath);
+      approveProposal(id, opts.globalJson, opts.proposalsPath, { force: opts.force });
       break;
     }
     case 'reject': {
