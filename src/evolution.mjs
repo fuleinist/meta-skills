@@ -9,6 +9,8 @@
  *   3. Propose: generate mutation proposals with before/after scores
  *   4. Pareto-filter: keep only variants that improve effectiveness
  *   5. Human-in-the-loop: review, approve, or reject proposals
+ *   6. Generality gate (issue #41): audit proposal content for localized
+ *      signals; --strict refuses localized content for global-scope skills
  *
  * Inspiration: EvoSkill (arXiv 2603.02766) — 7.3% OfficeQA gain, 12.1% SealQA gain
  */
@@ -19,6 +21,7 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { scoreAll } from './quality-scorer.mjs';
 import { takeSnapshot } from './rollback-ledger.mjs';
+import { auditGenerality, formatGeneralityReport } from './generality-audit.mjs';
 import { ensurePurpose, appendHistory } from './provenance.mjs';
 import { checkGateForSkill, defaultValidationDir } from './validation-harness.mjs';
 import { impactLogPath, impactKey, appendImpact, readImpact } from './skill-impact.mjs';
@@ -548,6 +551,8 @@ function listProposals(proposalsPath = defaultProposalsPath()) {
     console.log(`    ${p.reason}`);
     console.log(deltaStr);
     console.log(`    Confidence: ${Math.round(p.confidence * 100)}%`);
+    // issue #41 — one generality line per pending proposal
+    console.log(`    ${formatGeneralityReport(auditGenerality(String(p.diff || '')))}`);
     console.log();
   }
 
@@ -603,6 +608,11 @@ function recordProvenance(mutated, proposal) {
  * under the default validation dir, the strict gate runs first — equal or
  * worse than baseline is refused. `opts.force` overrides. No suite/baseline
  * ⇒ silent no-op (behaves exactly as before).
+ *
+ * issue #41: with `opts.strict`, a `localized` proposal is refused when the target
+ * index entry's `scope` is `global` (the default when the field is absent).
+ * `scope: "project"` is the escape hatch — a genuinely project-local skill may
+ * keep its localized content.
  */
 function approveProposal(id, globalJsonPath = defaultGlobalJson(), proposalsPath = defaultProposalsPath(), opts = {}) {
   const proposals = readProposals(proposalsPath);
@@ -615,6 +625,22 @@ function approveProposal(id, globalJsonPath = defaultGlobalJson(), proposalsPath
     index = JSON.parse(fs.readFileSync(globalJsonPath, 'utf-8'));
   } catch {
     throw new Error(`Cannot read ${globalJsonPath}`);
+  }
+
+  // ── issue #41 — generality gate (approve only; review stays informational) ──
+  if (opts.strict) {
+    const report = auditGenerality(String(proposal.diff || ''));
+    const entry = (index.skills || []).find(s => s.id === (proposal.skillIds || [])[0]);
+    const scope = entry?.scope || 'global';
+
+    if (report.label === 'localized' && scope === 'global') {
+      console.error(`✗ Refused (issue #41): ${id}`);
+      console.error(`  ${formatGeneralityReport(report)} — scope: global`);
+      console.error('  Localized content cannot be approved into a global skill.');
+      console.error('  Generalize the diff, or set "scope": "project" on the entry to skip this gate.');
+      return null;
+    }
+    console.log(`  ${formatGeneralityReport(report)} — scope: ${scope}`);
   }
 
   // ── Strict validation gate (issue #35) ──
@@ -880,7 +906,7 @@ Usage:
   meta-skills evolve baseline              Run baseline quality measurement
   meta-skills evolve propose [--dry-run]   Generate mutation proposals
   meta-skills evolve review                List pending proposals + prior rejections
-  meta-skills evolve approve <id>          Apply an approved proposal
+  meta-skills evolve approve <id> [--strict]  Apply an approved proposal
   meta-skills evolve reject <id> [--reason "text"]
                                           Reject a proposal — retained as a tombstone
   meta-skills evolve --all                 Full pipeline: baseline → propose → review
@@ -891,7 +917,8 @@ Options:
   --proposals-path <path>  Custom proposals.jsonl (audit trail sits beside it)
   --reason <text>          Why the proposal was rejected (recorded in the audit trail)
   --dry-run                Preview changes without writing
-  --all                    Run the full evolution pipeline`);
+  --all                    Run the full evolution pipeline
+  --strict               Approve only if the proposal is not localized (issue #41)`);
     process.exit(0);
   }
 
@@ -906,6 +933,7 @@ Options:
       : defaultProposalsPath(),
     reason: args.includes('--reason') ? args[args.indexOf('--reason') + 1] : null,
     dryRun: args.includes('--dry-run'),
+    strict: args.includes('--strict'),
     force: args.includes('--force'),
   };
 
@@ -922,7 +950,8 @@ Options:
     case 'approve': {
       const id = args[1];
       if (!id) { console.error('Usage: meta-skills evolve approve <id>'); process.exit(1); }
-      approveProposal(id, opts.globalJson, opts.proposalsPath, { force: opts.force });
+      const mutated = approveProposal(id, opts.globalJson, opts.proposalsPath, { strict: opts.strict, force: opts.force });
+      if (!mutated) process.exit(1);
       break;
     }
     case 'reject': {

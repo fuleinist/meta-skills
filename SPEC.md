@@ -611,6 +611,61 @@ node src/provenance.mjs check [--global-json <path>] [--json]
 - Zero new npm deps (Node stdlib only), portable APIs (Windows-safe `fs.renameSync`).
 - No changes to existing behavior: provenance is additive, warning-only, and best-effort.
 
+## Generality & transferability audit (issue #41)
+
+Skills are supposed to transfer across projects, machines and agents. A skill
+that encodes a localized workaround does not transfer — and can actively hurt.
+
+WikiSkill transfer study: a stronger model dropped from **50.5 → 18.1** on one
+benchmark when it used a weaker model's *localized* skills; *general* skills
+raised the same benchmark to **63.4**. Negative transfer is the failure mode
+this module guards against.
+
+### Signals (`src/generality-audit.mjs`)
+
+`auditGenerality(content, opts)` scans content — usually a proposal `diff` —
+for localized signals. Each kind counts occurrences and carries a penalty
+(weight × count, capped per kind so one stray docs URL cannot wreck a score):
+
+| kind | matches | weight | cap |
+|------|---------|--------|-----|
+| `abs-path` | `C:\`, `/Users/`, `/home/`, `\\server` | 12 | 48 |
+| `one-off-url` | `http(s)://…` (docs URLs are borderline, still counted) | 3 | 15 |
+| `machine-name` | "this machine", "this pc", "my computer", … | 8 | 40 |
+| `repo-local` | "in/for/local to this repo/project" **plus** a filename token on the same line | 10 | 50 |
+| `user-name` | `C:\Users\<name>\…` or `/Users/<name>/…` subpath (own kind only when the name is present) | 10 | 40 |
+
+Score = `100 − Σ penalties`, clamped 0–100. `ratio` = flags per 1000 chars
+(2 decimals). Labels: **general ≥ 80**, **mixed 50–79**, **localized < 50**.
+
+### Review display
+
+`evolve review` prints one extra line per pending proposal:
+
+```
+    generality: 78/100 (mixed) — flags: abs-path x2, repo-local x1
+```
+
+Informational only — review never blocks.
+
+### `evolve approve --strict`
+
+With `--strict`, the target skill's scope is read from the index entry's
+`scope` field (`project` or `global`; **default `global` when absent**). If the
+proposal is `localized` **and** the scope is `global`, approval is refused with
+a clear message and a non-zero exit. Otherwise it proceeds.
+
+**Scope escape hatch:** an entry with `scope: "project"` is allowed to keep
+localized content — a genuinely project-local skill is not penalized. `scope`
+is read opportunistically; it is not yet in `schema/v1.json`.
+
+### Tests
+
+`src/generality-audit.test.mjs` — 17 tests (pure functions, no temp dirs):
+true positives per kind, clean/mixed/localized fixtures, ratio math, label
+boundaries (80/79, 50/49), caps, format rendering. Runs in the `npm test`
+chain immediately before `packaging.test.mjs`.
+
 ## Outcome read-back & retention (issue #34)
 
 **The problem:** the pipeline writes proposals but never reads them back. `analyzeMutations()` /
