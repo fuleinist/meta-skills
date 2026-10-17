@@ -8,6 +8,8 @@
  * Commands:
  *   record <skill-id> [--outcome success|failure] [--log-dir <path>]
  *     → Appends a usage event to the daily log
+ *     → Optional --evidence <file|-> stores the raw execution trace
+ *       (write-once, capped) and links it as event.traceId (issue #37)
  *
  *   aggregate [--global-json <path>] [--log-dir <path>] [--out <path>]
  *     → Reads daily logs, updates usage_count + last_used in global.json
@@ -22,6 +24,7 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { resolveDependencies } from './semver-compat.mjs';
 import { warnIfDeprecated } from './deprecation.mjs';
+import { storeTrace, defaultTracesDir } from './traces.mjs';
 
 const SCHEMA_URL = 'https://meta-skills.dev/schema/v1.json';
 
@@ -39,6 +42,22 @@ function defaultGlobalJson() {
 
 // ── Record ────────────────────────────────────────────────────────────
 
+/** Read raw evidence from a file path, or stdin when the value is "-". */
+function readEvidence(evidence) {
+  if (evidence === '-') {
+    try {
+      return fs.readFileSync(0, 'utf-8');
+    } catch (e) {
+      throw new Error(`cannot read evidence from stdin: ${e.message}`);
+    }
+  }
+  try {
+    return fs.readFileSync(evidence, 'utf-8');
+  } catch (e) {
+    throw new Error(`cannot read evidence file ${evidence}: ${e.message}`);
+  }
+}
+
 function cmdRecord(skillId, options) {
   const logDir = options.logDir || defaultLogDir();
   const outcome = options.outcome || 'success';
@@ -52,8 +71,21 @@ function cmdRecord(skillId, options) {
     ...(options.tokens != null ? { tokens: options.tokens } : {}),
   };
 
+  // v0.2.5 (issue #37) — optional raw evidence capture. Additive-only:
+  // without --evidence the event shape is exactly as before.
+  let trace = null;
+  if (options.evidence) {
+    trace = storeTrace(readEvidence(options.evidence), { dir: options.tracesDir || defaultTracesDir() });
+    event.traceId = trace.id;
+    if (trace.truncated) event.traceTruncated = true;
+  }
+
   fs.appendFileSync(logFile, JSON.stringify(event) + '\n', 'utf-8');
   console.log(`✓ recorded: ${skillId} (${outcome}) → ${logFile}`);
+  if (trace) {
+    const note = trace.truncated ? `, truncated from ${trace.originalChars} chars` : '';
+    console.log(`  evidence: ${trace.id} (${trace.bytes} bytes${note})`);
+  }
 
   // v0.1.7 — warn if skill is deprecated
   try {
@@ -227,6 +259,11 @@ function main() {
   meta-skills aggregate [--global-json <path>] [--log-dir <path>] [--out <path>]
   meta-skills rotate [--log-dir <path>] [--keep-days 90]
 
+  v0.2.5 (issue #37) --evidence <file|->: store the raw execution trace
+    (write-once, capped at 15000 chars) and link it on the event as traceId.
+    Traces live in ~/.meta-skills/traces (--traces-dir to override) and are
+    never uploaded.
+
   v0.1.4 --tokens <n>: Record empirical token count for this activation.
     The average across all recorded tokens becomes the skill's empirical_tokens,
     which the budget optimizer (v1.7) uses instead of the chars/4 heuristic.
@@ -243,6 +280,8 @@ function main() {
   for (let i = 1; i < args.length; i++) {
     if (args[i] === '--outcome' && i + 1 < args.length) options.outcome = args[++i];
     else if (args[i] === '--tokens' && i + 1 < args.length) options.tokens = parseInt(args[++i], 10);
+    else if (args[i] === '--evidence' && i + 1 < args.length) options.evidence = args[++i];
+    else if (args[i] === '--traces-dir' && i + 1 < args.length) options.tracesDir = path.resolve(args[++i]);
     else if (args[i] === '--log-dir' && i + 1 < args.length) options.logDir = path.resolve(args[++i]);
     else if (args[i] === '--global-json' && i + 1 < args.length) options.globalJson = path.resolve(args[++i]);
     else if (args[i] === '--no-deps') options.noDeps = true;
