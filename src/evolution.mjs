@@ -16,6 +16,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { scoreAll } from './quality-scorer.mjs';
 import { takeSnapshot } from './rollback-ledger.mjs';
@@ -38,6 +39,88 @@ function defaultProposalsPath() {
 
 function defaultGlobalJson() {
   return path.join(os.homedir(), '.meta-skills', 'global.json');
+}
+
+// ── Placeholder content guard (issue #43 item 6) ────────────────────────────
+
+const PLACEHOLDER_MARKERS = [
+  'Example usage here',
+  'TODO',
+  'FIXME',
+  'placeholder',
+  '<insert',
+];
+
+/**
+ * Which PLACEHOLDER_MARKERS appear in a piece of content (case-insensitive).
+ * @param {string} content
+ * @returns {string[]} matched markers
+ */
+function findPlaceholderMarkers(content) {
+  const text = String(content || '').toLowerCase();
+  return PLACEHOLDER_MARKERS.filter(m => text.includes(m.toLowerCase()));
+}
+
+/**
+ * True when content still contains authoring placeholders (or is empty).
+ * Every apply path must run this before writing a SKILL.md.
+ */
+function containsPlaceholder(content) {
+  const text = String(content || '');
+  if (!text.trim()) return true;
+  return findPlaceholderMarkers(text).length > 0;
+}
+
+// ── File helpers (issue #43 item 1) ─────────────────────────────────────────
+
+/** Short sha-256 hash used for proposal IDs and batch dedupe keys. */
+function shortHash(value) {
+  return createHash('sha256').update(String(value)).digest('hex').slice(0, 8);
+}
+
+/** Read a skill file; returns null when it cannot be resolved. */
+function readSkillContent(entryPath) {
+  if (!entryPath) return null;
+  try {
+    return fs.readFileSync(entryPath, 'utf-8');
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve the skills root from an index entry path.
+ * Entry paths look like `<skillsRoot>/<skill-id>/SKILL.md`, so the root is
+ * dirname(dirname(path)).
+ */
+function skillsRootFromEntry(entryPath) {
+  if (!entryPath) return null;
+  return path.dirname(path.dirname(path.resolve(entryPath)));
+}
+
+/**
+ * Write `<root>/<id>/SKILL.md` atomically (temp + rename).
+ * Refuses any target that escapes the resolved skills root.
+ * @returns {string|null} written path, or null when refused
+ */
+function writeSkillFile(root, id, content) {
+  const rootAbs = path.resolve(root);
+  const target = path.resolve(rootAbs, id, 'SKILL.md');
+  const rel = path.relative(rootAbs, target);
+  if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return null;
+
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  const tmpPath = target + '.tmp';
+  fs.writeFileSync(tmpPath, content, 'utf-8');
+  fs.renameSync(tmpPath, target);
+  return target;
+}
+
+/** Strip YAML frontmatter from a SKILL.md body. */
+function stripFrontmatter(content) {
+  const text = String(content || '');
+  const m = text.match(/^---\n[\s\S]*?\n---\n?/);
+  return m ? text.slice(m[0].length) : text;
 }
 
 // ── Baseline ────────────────────────────────────────────────────────────────
@@ -193,10 +276,13 @@ function analyzeMutations(index, baseline = null) {
 function generateProposals(index, baseline, opportunities) {
   const proposals = [];
   const skillMap = new Map((index.skills || []).map(s => [s.id, s]));
+  let seq = 0;
 
   for (const opp of opportunities) {
     const proposal = {
-      id: `${opp.type}-${opp.id}-${Date.now()}`,
+      // Issue #43 item 2: `type-oppId-Date.now()` collided when two proposals
+      // targeted the same skill in one run. Per-batch sequence + diff hash.
+      id: '',
       type: opp.type,
       skillIds: [opp.id],
       reason: opp.reason,
@@ -221,6 +307,7 @@ function generateProposals(index, baseline, opportunities) {
         : '';
 
       proposal.diff = generateSplitDiff(skill?.id || opp.id, skillContent, newWhen);
+      proposal.content = deriveSplitContent(`${opp.id}-core`, opp.id, skillContent, newWhen);
       proposal.afterScores = estimateAfterScores(proposal.beforeScores, 'split');
 
     } else if (opp.type === 'merge') {
@@ -238,6 +325,13 @@ function generateProposals(index, baseline, opportunities) {
       };
 
       proposal.diff = generateMergeDiff(idA, idB, skillA?.path, skillB?.path);
+      proposal.content = deriveMergeContent(
+        `${idA}-${idB}`,
+        idA,
+        idB,
+        readSkillContent(skillA?.path),
+        readSkillContent(skillB?.path),
+      );
       proposal.afterScores = estimateAfterScores(proposal.beforeScores, 'merge');
 
     } else if (opp.type === 'rewrite') {
@@ -257,10 +351,14 @@ function generateProposals(index, baseline, opportunities) {
         ? fs.readFileSync(skill.path, 'utf-8')
         : '';
 
-      proposal.diff = generateRewriteDiff(opp.id, skillContent);
+      const newWhen = tightenWhen(skill?.when || '');
+      proposal.diff = generateRewriteDiff(opp.id, skillContent, newWhen);
+      proposal.content = deriveRewriteContent(opp.id, skillContent, newWhen);
       proposal.afterScores = estimateAfterScores(proposal.beforeScores, 'rewrite');
     }
 
+    proposal.id = `${opp.type}-${opp.id}-${seq}-${shortHash(proposal.diff || '')}`;
+    seq++;
     proposals.push(proposal);
   }
 
@@ -332,12 +430,29 @@ function generateMergeDiff(idA, idB, pathA, pathB) {
 }
 
 /**
- * Generate a rewrite-diff: full rewrite with structured improvements.
+ * Tighten a `when:` trigger (shared by proposal generation and apply).
  */
-function generateRewriteDiff(skillId, existingContent) {
-  const template = `---\nname: ${skillId}\ndescription: Auto-improved version with tighter trigger and structured guidance\n---\n\n# ${skillId}\n\n## When to Use\n\nUse this skill ONLY when the task explicitly matches the documented trigger criteria.\n\n## How to Use\n\n1. Verify the task matches this skill's domain\n2. Follow the steps below in order\n3. Validate output before returning\n\n## Steps\n\n1. **Context check**: Confirm this skill applies\n2. **Execute**: Apply the skill's methodology\n3. **Validate**: Check output quality\n\n## Anti-Patterns\n\n- Do NOT use for tasks outside this skill's domain\n- Do NOT skip validation steps\n\n## Examples\n\n\`\`\`bash\n# Example usage here\n\`\`\`\n\n*Auto-generated by meta-skills v0.1 evolution engine.*`;
+function tightenWhen(when) {
+  const trimmed = String(when || '').trim();
+  if (!trimmed) return '';
+  const tightened = trimmed.replace(/\bgeneral|various|any|multiple|different\b/i, 'specific');
+  return /ONLY/i.test(tightened) ? tightened : `Use ONLY when ${tightened.toLowerCase()}`;
+}
 
-  return `--- a/skills/${skillId}/SKILL.md\n+++ b/skills/${skillId}/SKILL.md\n@@ -1,${Math.max(existingContent.split('\n').length, 1)} +1,30 @@\n-${existingContent.split('\n').slice(0, 5).join('\n-')}\n+${template.split('\n').join('\n+')}`;
+/**
+ * Generate a rewrite-diff: full rewrite with structured improvements.
+ * Content is derived from the real source file, not a placeholder template.
+ */
+function generateRewriteDiff(skillId, existingContent, newWhen = '') {
+  const template = deriveRewriteContent(skillId, existingContent, newWhen || tightenWhen(''));
+  if (!template) {
+    return `--- a/skills/${skillId}/SKILL.md\n+++ b/skills/${skillId}/SKILL.md\n@@ -1,1 +1,1 @@\n+Rewrite needs authoring: no source content available to derive from.`;
+  }
+
+  const oldLines = existingContent.split('\n').slice(0, 5);
+  const newLines = template.split('\n');
+
+  return `--- a/skills/${skillId}/SKILL.md\n+++ b/skills/${skillId}/SKILL.md\n@@ -1,${Math.max(oldLines.length, 1)} +1,${newLines.length} @@\n${oldLines.map(l => `-${l}`).join('\n')}\n${newLines.map(l => `+${l}`).join('\n')}`;
 }
 
 /**
@@ -347,6 +462,114 @@ function newForcedLines(content) {
   return content.split('\n')
     .filter(l => l.trim() && !l.startsWith('---') && !l.startsWith('#'))
     .slice(0, 8);
+}
+
+// ── Content derivation (issue #43 item 1) ───────────────────────────────────
+
+/**
+ * Real content for a split sub-skill, derived from the source skill's body.
+ * Returns null when nothing real can be derived.
+ */
+function deriveSplitContent(newId, sourceId, sourceContent, newWhen) {
+  const body = stripFrontmatter(sourceContent).trim();
+  if (!body) return null;
+
+  const lines = body.split('\n');
+  const startIdx = lines.findIndex(l => /^##\s/.test(l));
+  let coreSection = '';
+  if (startIdx >= 0) {
+    const section = [lines[startIdx]];
+    for (let i = startIdx + 1; i < lines.length; i++) {
+      if (/^##\s/.test(lines[i])) break;
+      section.push(lines[i]);
+    }
+    coreSection = section.join('\n').trim();
+  }
+  if (!coreSection) coreSection = body;
+
+  return [
+    `---\nname: ${newId}\ndescription: Core functionality split from ${sourceId}\nwhen: ${newWhen}\n---`,
+    '',
+    `# ${newId}`,
+    '',
+    `Split from \`${sourceId}\`; this sub-skill covers the core path only.`,
+    '',
+    coreSection,
+    '',
+    '## Scope boundary',
+    '',
+    `Handle the core case here. Advanced and edge-case work belongs to \`${sourceId}\`, which keeps the broader trigger.`,
+    '',
+  ].join('\n');
+}
+
+/**
+ * Real content for a merged skill: both sources under clear sections.
+ */
+function deriveMergeContent(mergedId, idA, idB, contentA, contentB) {
+  const parts = [];
+  if (contentA && stripFrontmatter(contentA).trim()) {
+    parts.push(`## From ${idA}\n\n${stripFrontmatter(contentA).trim()}`);
+  }
+  if (contentB && stripFrontmatter(contentB).trim()) {
+    parts.push(`## From ${idB}\n\n${stripFrontmatter(contentB).trim()}`);
+  }
+  if (parts.length === 0) return null;
+
+  return [
+    `# ${mergedId}`,
+    '',
+    `Merged skill combining \`${idA}\` and \`${idB}\`.`,
+    '',
+    ...parts,
+    '',
+  ].join('\n');
+}
+
+/**
+ * Real content for a rewritten skill, derived from the source body.
+ * Returns null when nothing real can be derived.
+ */
+function deriveRewriteContent(skillId, existingContent, newWhen) {
+  const body = stripFrontmatter(existingContent);
+  const bodyLines = body.split('\n').map(l => l.trim()).filter(Boolean);
+  if (bodyLines.length === 0) return null;
+
+  const fence = body.match(/```[a-zA-Z]*\n([\s\S]*?)```/);
+  const exampleBlock = fence ? fence[1].trim() : bodyLines[0];
+  const steps = bodyLines.filter(l => /^\d+\./.test(l)).slice(0, 6);
+
+  const out = [
+    `---\nname: ${skillId}\ndescription: Rewritten with a tighter trigger and explicit steps\nwhen: ${newWhen}\n---`,
+    '',
+    `# ${skillId}`,
+    '',
+    '## When to Use',
+    '',
+    newWhen,
+    '',
+    '## How to Use',
+    '',
+  ];
+
+  if (steps.length > 0) out.push(...steps);
+  else out.push('1. Confirm the task matches the trigger above', '2. Apply the documented steps in order', '3. Validate the output before returning');
+
+  out.push(
+    '',
+    '## Source guidance (carried over)',
+    '',
+    bodyLines.slice(0, 12).join('\n'),
+    '',
+    '## Examples',
+    '',
+    '```bash',
+    exampleBlock,
+    '```',
+    '',
+  );
+
+  return out.join('\n');
 }
 
 /**
@@ -444,7 +667,17 @@ function paretoFilter(proposals, baseline) {
 // ── Proposal storage ────────────────────────────────────────────────────────
 
 /**
+ * Batch dedupe key: (type, target, diff-hash). Two proposals that would write
+ * the same content to the same skill are the same proposal.
+ */
+function dedupeKey(proposal) {
+  const target = (proposal.skillIds || []).slice().sort().join('+');
+  return `${proposal.type}|${target}|${shortHash(proposal.diff || proposal.content || '')}`;
+}
+
+/**
  * Write proposals to the proposals JSONL file.
+ * Dedupes by id, and within the batch by (type, target, diff-hash).
  */
 function writeProposals(proposals, proposalsPath = defaultProposalsPath()) {
   const dir = path.dirname(proposalsPath);
@@ -452,9 +685,18 @@ function writeProposals(proposals, proposalsPath = defaultProposalsPath()) {
 
   const existing = readProposals(proposalsPath);
   const existingIds = new Set(existing.map(p => p.id));
+  const seenKeys = new Set(existing.map(p => dedupeKey(p)));
 
-  // Append new proposals (skip duplicates by id)
-  const toWrite = proposals.filter(p => !existingIds.has(p.id));
+  // Append new proposals (skip duplicates by id, and by type/target/diff-hash)
+  const toWrite = [];
+  for (const p of proposals) {
+    if (existingIds.has(p.id)) continue;
+    const key = dedupeKey(p);
+    if (seenKeys.has(key)) continue;
+    seenKeys.add(key);
+    toWrite.push(p);
+  }
+
   const fd = fs.openSync(proposalsPath, 'a');
   for (const p of toWrite) {
     fs.writeSync(fd, JSON.stringify(p) + '\n', 'utf-8');
@@ -506,10 +748,11 @@ function listProposals(proposalsPath = defaultProposalsPath()) {
 }
 
 /**
- * Approve a proposal: apply its diff to a working copy of global.json.
+ * Approve a proposal: snapshot, materialize skill files, then apply the index
+ * mutation (issue #43 item 1).
  * Returns the mutated index or null on failure.
  */
-function approveProposal(id, globalJsonPath = defaultGlobalJson(), proposalsPath = defaultProposalsPath()) {
+function approveProposal(id, globalJsonPath = defaultGlobalJson(), proposalsPath = defaultProposalsPath(), options = {}) {
   const proposals = readProposals(proposalsPath);
   const proposal = proposals.find(p => p.id === id);
   if (!proposal) throw new Error(`Proposal not found: ${id}`);
@@ -522,11 +765,13 @@ function approveProposal(id, globalJsonPath = defaultGlobalJson(), proposalsPath
     throw new Error(`Cannot read ${globalJsonPath}`);
   }
 
-  // Snapshot before mutation
-  try { takeSnapshot({ globalJsonPath, comment: `evolve-approve:${id}` }); } catch { /* best-effort */ }
+  // Snapshot before anything is written (best-effort — never blocks approval)
+  try {
+    takeSnapshot({ globalJsonPath, historyPath: options.historyPath, comment: `evolve-approve:${id}` });
+  } catch { /* best-effort */ }
 
-  // Apply mutation
-  const mutated = applyMutation(proposal, index);
+  // Apply mutation (materializes SKILL.md files inside the resolved skills root)
+  const mutated = applyMutation(proposal, index, { materialize: options.materialize !== false });
   if (!mutated) throw new Error(`Failed to apply mutation for ${id}`);
 
   // Write mutated index
@@ -541,6 +786,16 @@ function approveProposal(id, globalJsonPath = defaultGlobalJson(), proposalsPath
 
   console.log(`✓ Approved and applied: ${id}`);
   console.log(`  Mutated index written to ${globalJsonPath}`);
+  const mat = proposal.materialization || {};
+  if (mat.written?.length) {
+    for (const f of mat.written) console.log(`  wrote: ${f}`);
+  }
+  for (const s of mat.skipped || []) {
+    console.log(`  skipped file for ${s.id}: ${s.reason}`);
+  }
+  if (proposal.needsAuthoring) {
+    console.log(`  ! needsAuthoring: ${proposal.message}`);
+  }
   return mutated;
 }
 
@@ -563,12 +818,58 @@ function rejectProposal(id, proposalsPath = defaultProposalsPath()) {
 
 /**
  * Apply a mutation to a clone of the index.
- * Returns the mutated clone, or null if mutation cannot be applied.
+ *
+ * Issue #43 item 1: approval materializes real SKILL.md files for split/merge
+ * (and for rewrite when the content passes the placeholder guard). Index-only
+ * behavior is kept as the fallback when a file cannot be written.
+ *
+ * Issue #43 item 6: every apply path runs the placeholder guard first.
+ *
+ * @param {object} proposal
+ * @param {object} index
+ * @param {object} [options] — { materialize: boolean }
+ * @returns {object|null} mutated clone
  */
-function applyMutation(proposal, index) {
+function applyMutation(proposal, index, options = {}) {
   const mutated = JSON.parse(JSON.stringify(index));
   const skills = mutated.skills || [];
   const skillMap = new Map(skills.map(s => [s.id, s]));
+  const materialize = options.materialize !== false;
+  const record = { written: [], skipped: [], needsAuthoring: false, message: null };
+
+  const noteSkip = (entryId, reason) => record.skipped.push({ id: entryId, reason });
+
+  const materializeEntry = (entryId, content, sourcePath) => {
+    if (!materialize) return null;
+
+    if (containsPlaceholder(content)) {
+      const markers = findPlaceholderMarkers(content);
+      record.needsAuthoring = true;
+      record.message = `refused to write ${entryId}: content contains placeholder marker(s): `
+        + (markers.length ? markers.join(', ') : 'empty content')
+        + '. Authoring required before file materialization.';
+      return null;
+    }
+
+    const root = skillsRootFromEntry(sourcePath);
+    if (!root) {
+      noteSkip(entryId, `cannot resolve skills root from source path: ${sourcePath || '(no path)'}`);
+      return null;
+    }
+
+    try {
+      const target = writeSkillFile(root, entryId, content);
+      if (!target) {
+        noteSkip(entryId, `refused to write outside the resolved skills root (${root})`);
+        return null;
+      }
+      record.written.push(target);
+      return target;
+    } catch (e) {
+      noteSkip(entryId, `write failed: ${e.message}`);
+      return null;
+    }
+  };
 
   if (proposal.type === 'split') {
     const skill = skillMap.get(proposal.skillIds[0]);
@@ -576,13 +877,25 @@ function applyMutation(proposal, index) {
 
     // Create a new core sub-skill
     const coreId = `${proposal.skillIds[0]}-core`;
-    skills.push({
+    const coreWhen = `Use ONLY for core ${proposal.skillIds[0]} functionality (not advanced or edge cases)`;
+    const newEntry = {
       ...skill,
       id: coreId,
       when: `${skill.when} (core functionality only)`,
       priority: skill.priority === 'high' ? 'high' : 'medium',
       version: skill.version ? incrementVersion(skill.version) : '0.1.0',
-    });
+    };
+
+    const sourceContent = readSkillContent(skill.path);
+    if (sourceContent === null) {
+      noteSkip(coreId, `source skill file not readable: ${skill.path || '(no path)'}`);
+    } else {
+      const content = proposal.content || deriveSplitContent(coreId, skill.id, sourceContent, coreWhen);
+      const target = materializeEntry(coreId, content, skill.path);
+      if (target) newEntry.path = target;
+    }
+
+    skills.push(newEntry);
 
     // Tighten the original skill's when field
     skill.when = skill.when.replace(/Use\s+ONLY\s+when.+$/, 'Use ONLY for core functionality');
@@ -599,17 +912,29 @@ function applyMutation(proposal, index) {
     if (!skillA || !skillB) return null;
 
     const mergedId = `${idA}-${idB}`;
-    skills.push({
+    const mergedEntry = {
       id: mergedId,
       when: `When using ${idA} or ${idB} workflows, or combining their capabilities`,
       why: `Merged from ${idA} and ${idB} via evolution engine v0.1`,
-      path: skillA.path, // prefer A's path
+      path: skillA.path, // fallback: prefer A's path when nothing can be written
       priority: skillA.priority === 'high' || skillB.priority === 'high' ? 'high' : 'medium',
       version: '0.1.0',
       mergedFrom: [idA, idB],
       usage_count: (skillA.usage_count || 0) + (skillB.usage_count || 0),
       last_used: [skillA.last_used, skillB.last_used].filter(Boolean).sort().pop(),
-    });
+    };
+
+    const contentA = readSkillContent(skillA.path);
+    const contentB = readSkillContent(skillB.path);
+    if (contentA === null && contentB === null) {
+      noteSkip(mergedId, `neither source skill file is readable (${skillA.path}, ${skillB.path})`);
+    } else {
+      const content = proposal.content || deriveMergeContent(mergedId, idA, idB, contentA, contentB);
+      const target = materializeEntry(mergedId, content, skillA.path || skillB.path);
+      if (target) mergedEntry.path = target;
+    }
+
+    skills.push(mergedEntry);
 
     // Archive the originals
     for (const id of [idA, idB]) {
@@ -625,7 +950,19 @@ function applyMutation(proposal, index) {
     const skill = skillMap.get(proposal.skillIds[0]);
     if (!skill) return null;
 
-    // Rewrite the when field and add structure hints
+    // Placeholder guard first (issue #43 item 6)
+    const sourceContent = readSkillContent(skill.path);
+    const newWhen = tightenWhen(skill.when);
+    const content = proposal.content || deriveRewriteContent(skill.id, sourceContent || '', newWhen);
+
+    if (sourceContent === null) {
+      noteSkip(skill.id, `source skill file not readable: ${skill.path || '(no path)'}`);
+    } else {
+      const target = materializeEntry(skill.id, content, skill.path);
+      if (target) skill.path = target;
+    }
+
+    // Index-only behavior always applies (and is the only effect when blocked)
     skill.when = skill.when.replace(/\bgeneral|various|any|multiple|different\b/i, 'specific');
     if (!skill.when.includes('ONLY')) {
       skill.when = `Use ONLY when ${skill.when.trim().toLowerCase()}`;
@@ -634,6 +971,12 @@ function applyMutation(proposal, index) {
     skill.rewrittenBy = 'evolution-engine';
     skill.rewrittenAt = new Date().toISOString();
   }
+
+  if (record.needsAuthoring) {
+    proposal.needsAuthoring = true;
+    proposal.message = record.message;
+  }
+  proposal.materialization = record;
 
   return mutated;
 }
@@ -739,8 +1082,8 @@ Usage:
   meta-skills evolve baseline              Run baseline quality measurement
   meta-skills evolve propose [--dry-run]   Generate mutation proposals
   meta-skills evolve review                List pending proposals
-  meta-skills evolve approve <id>          Apply an approved proposal
-  meta-skills evolve reject <id>           Discard a proposal
+  meta-skills evolve approve <id>          Apply an approved proposal (writes SKILL.md files)
+  meta-skills evolve reject <id>           Mark a proposal rejected (the record is retained in the store)
   meta-skills evolve --all                 Full pipeline: baseline → propose → review
 
 Options:
@@ -811,6 +1154,16 @@ export {
   defaultEvolveDir,
   defaultBaselinePath,
   defaultProposalsPath,
+  PLACEHOLDER_MARKERS,
+  containsPlaceholder,
+  findPlaceholderMarkers,
+  shortHash,
+  dedupeKey,
+  skillsRootFromEntry,
+  writeSkillFile,
+  deriveSplitContent,
+  deriveMergeContent,
+  deriveRewriteContent,
 };
 
 // Also export writeProposals for internal use
