@@ -608,6 +608,11 @@ async function cmdEvolve(args) {
     case 'all':
       await _evolution.evolve(options);
       break;
+    case 'loop': {
+      const loop = await import(pathToFileURL(path.resolve(__dirname, 'evolution-loop.mjs')).href);
+      await loop.cmdLoop(args.slice(1));
+      break;
+    }
     default:
       // No subcommand = show help
       console.log(`meta-skills evolve — Autonomous skill evolution (v0.1)
@@ -620,6 +625,7 @@ Usage:
   meta-skills evolve reject <id> [--reason "text"]
                                           Reject — retained as a tombstone (v0.2.5)
   meta-skills evolve --all                 Full pipeline: baseline → propose → review
+  meta-skills evolve loop run|status       K-iteration loop (issue #36, dry-run default)
 
 Options:
   --global-json <path>   Custom global.json path
@@ -1126,7 +1132,7 @@ function showHelp() {
   console.log('    semver engines <skill-id>');
   console.log('    semver deps [--global-json <path>]');
   console.log('    semver check-deprecated [--global-json <path>]');
-  console.log('  evolve <baseline|propose|review|approve|reject|--all>  Autonomous skill evolution (v0.1)');
+  console.log('  evolve <baseline|propose|review|approve|reject|--all|loop>  Autonomous skill evolution (v0.1)');
   console.log('  deprecate <skill-id> [successor-id]   Mark skill as deprecated (v0.1.7)');
   console.log('  deprecate list                        List deprecated active skills');
   console.log('  undeprecate <skill-id>                Remove deprecated status');
@@ -1152,6 +1158,8 @@ function showHelp() {
   console.log('    evolve approve <id>          Apply an approved proposal');
   console.log('    evolve reject <id> [--reason "text"]  Reject — retained as a tombstone (v0.2.5)');
   console.log('    evolve --all                 Full pipeline: baseline → propose → review');
+  console.log('    evolve loop run [--iterations 5] [--ceiling 100] [--no-progress-stop 2] [--write] [--json]');
+  console.log('    evolve loop status [--json]  Iteration-loop summary (issue #36, dry-run default)');
   console.log('');
   console.log('Options:');
   console.log('  --help                     Show this help message');

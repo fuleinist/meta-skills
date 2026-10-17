@@ -717,6 +717,47 @@ a baseline both exist for the target skill; otherwise it is a silent no-op.
 - Stdlib only — zero new npm deps
 - Tests run in temp dirs (`fs.mkdtempSync`), never the real home (20 tests)
 
+## Multi-iteration evolution loop (issue #36)
+
+`evolve --all` is one-shot. `evolve loop` turns it into a bounded K-iteration loop (WikiSkill
+Algorithm 1 shape): measure → propose → gate → optionally apply, with one JSONL record per
+iteration and a closing summary per run.
+
+```bash
+# Dry-run (default): estimate only, no index mutation
+meta-skills evolve loop run --iterations 5
+
+# Custom run, write mode (snapshot → apply → re-measure → rollback on regression)
+meta-skills evolve loop run --iterations 8 --ceiling 90 --no-progress-stop 3 --write --json
+
+# Read the recorded history
+meta-skills evolve loop status
+meta-skills evolve loop status --json
+```
+
+Defaults: `--iterations 5`, `--ceiling 100`, `--no-progress-stop 2`, `--write` off, paths under
+`~/.meta-skills/` (`global.json`, `evolve/proposals.jsonl`, `evolve/iterations.jsonl`).
+
+Records (`~/.meta-skills/evolve/iterations.jsonl`, one JSON object per line):
+
+```json
+{ "ts": "...", "type": "iteration", "runId": "ev-...", "iteration": 1, "mode": "dry-run",
+  "proposalsAttempted": 3, "proposalsKept": 2, "applied": 0, "accepted": 2,
+  "scoreBefore": 50, "scoreAfter": null, "estimatedDelta": 4, "skillIds": ["a"],
+  "stage": "early", "termination": null }
+```
+
+Stage buckets: early = 1-2, mid = 3-5, late = 6+. A `type: "summary"` record closes each run with
+`iterationsRun`, `acceptanceRate`, `applied`, `termination`, `avgDelta`, `stageStats` and
+`perSkill` counts. Corrupt/half lines are skipped on read.
+
+Termination reasons, checked in order: `ceiling` → `no-progress` → `max-iterations`; `manual` is
+written by the SIGINT path (`finalizeManual()`, exit 130).
+
+Integration notes: the default `measure` dep is the average quality score (scalar 0-100) and the
+issue #35 validation harness replaces it later; `src/wiki.mjs` can feed `analyze` when it lands.
+Read-only views: MCP tool `iteration_summary` and dashboard `GET /api/iterations`.
+
 ## Outcome read-back & retention (v0.2.5)
 
 **The problem:** proposals are generated from current quality scores only. Nothing reads history
