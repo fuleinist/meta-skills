@@ -11,6 +11,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { execSync } from 'node:child_process';
+import { main } from './usage-tracker.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const trackerPath = path.join(__dirname, 'usage-tracker.mjs');
@@ -57,6 +58,15 @@ function run(args) {
       env: { ...process.env, HOME: os.homedir() },
     });
   } catch (e) {
+    if (/EPERM/.test(e.message)) {
+      // Sandbox fallback: spawning is blocked, so run main() in-process with
+      // the same arguments. Keeps the suite meaningful where exec is denied.
+      const argv = args.match(/"[^"]*"|\S+/g) || [];
+      process.argv = [process.argv[0], trackerPath, ...argv.map(a => a.replace(/^"|"$/g, ''))];
+      try { main(); } catch (err) { return err.message; }
+      finally { process.argv = [process.argv[0], fileURLToPath(import.meta.url)]; }
+      return '';
+    }
     return e.stdout || e.message;
   }
 }
@@ -137,6 +147,44 @@ const git4 = updated4.skills.find(s => s.id === 'git-commits');
 const review4 = updated4.skills.find(s => s.id === 'code-review');
 check('empirical_tokens = avg(800,1000,900) = 900', git4.empirical_tokens === 900);
 check('skill without token data has no empirical_tokens', !('empirical_tokens' in review4));
+
+// ── Test 1d: Raw evidence capture (issue #37) ─────────────────────
+console.log('\n--- Raw evidence capture (issue #37) ---');
+const logDir5 = path.join(tmpDir, 'logs-evidence');
+fs.mkdirSync(logDir5, { recursive: true });
+const tracesDir = path.join(tmpDir, 'traces');
+fs.mkdirSync(tracesDir, { recursive: true });
+const evidenceFile = path.join(tmpDir, 'evidence.md');
+fs.writeFileSync(evidenceFile, 'reasoning excerpt\n\ntool_call: read src/usage-tracker.mjs\noutcome: failure', 'utf-8');
+
+function readEvents(dir) {
+  return fs.readdirSync(dir)
+    .filter(f => f.endsWith('.jsonl'))
+    .flatMap(f => fs.readFileSync(path.join(dir, f), 'utf-8').trim().split('\n'))
+    .map(l => JSON.parse(l));
+}
+
+run(`record git-commits --outcome failure --log-dir "${logDir5}" --global-json "${globalJson}" --evidence "${evidenceFile}" --traces-dir "${tracesDir}"`);
+
+const evEvents = readEvents(logDir5);
+check('evidence event recorded', evEvents.length === 1);
+check('event carries traceId', typeof evEvents[0].traceId === 'string' && evEvents[0].traceId.length > 0);
+const tracePath = path.join(tracesDir, `${evEvents[0].traceId}.md`);
+check('trace file exists on disk', fs.existsSync(tracePath));
+check('stored trace matches evidence content', fs.readFileSync(tracePath, 'utf-8') === fs.readFileSync(evidenceFile, 'utf-8'));
+
+// oversized evidence → truncation flag on the event
+const bigEvidence = path.join(tmpDir, 'evidence-big.md');
+fs.writeFileSync(bigEvidence, 'y'.repeat(15000 + 200), 'utf-8');
+run(`record code-review --log-dir "${logDir5}" --global-json "${globalJson}" --evidence "${bigEvidence}" --traces-dir "${tracesDir}"`);
+const evEvents2 = readEvents(logDir5);
+check('oversized evidence sets traceTruncated', evEvents2[1].traceTruncated === true);
+
+// without --evidence the event shape is unchanged (additive-only)
+run(`record git-commits --log-dir "${logDir5}" --global-json "${globalJson}"`);
+const evEvents3 = readEvents(logDir5);
+check('event without --evidence has no traceId', !('traceId' in evEvents3[2]));
+check('plain event shape unchanged', Object.keys(evEvents3[2]).join(',') === 'skill,timestamp,outcome');
 
 // ── Test 2: Aggregate ─────────────────────────────────────────────────
 console.log('\n--- Aggregate ---');
